@@ -255,7 +255,9 @@ module PyPI
     end
 
     main_package = if package_name.present?
-      Package.new(package_name, python_name: python_name)
+      package_string = package_name
+      package_string += "==#{formula.version}" if version.blank? && formula.version.present?
+      Package.new(package_string, python_name:)
     elsif package_name == ""
       nil
     else
@@ -265,7 +267,7 @@ module PyPI
       else
         stable.url
       end
-      Package.new(url, is_url: true, python_name: python_name)
+      Package.new(url, is_url: true, python_name:)
     end
 
     if main_package.nil?
@@ -317,11 +319,11 @@ module PyPI
     # Resolve the dependency tree of all input packages
     show_info = !print_only && !silent
     ohai "Retrieving PyPI dependencies for \"#{input_packages.join(" ")}\"..." if show_info
-    found_packages = pip_report(input_packages, python_name: python_name, print_stderr: verbose && show_info)
+    found_packages = pip_report(input_packages, python_name:, print_stderr: verbose && show_info)
     # Resolve the dependency tree of excluded packages to prune the above
     exclude_packages.delete_if { |package| found_packages.exclude? package }
     ohai "Retrieving PyPI dependencies for excluded \"#{exclude_packages.join(" ")}\"..." if show_info
-    exclude_packages = pip_report(exclude_packages, python_name: python_name, print_stderr: verbose && show_info)
+    exclude_packages = pip_report(exclude_packages, python_name:, print_stderr: verbose && show_info)
     exclude_packages += [Package.new(main_package.name)] unless main_package.nil?
 
     new_resource_blocks = ""
@@ -374,7 +376,7 @@ module PyPI
 
     ohai "Updating resource blocks" unless silent
     Utils::Inreplace.inreplace formula.path do |s|
-      if s.inreplace_string.scan(inreplace_regex).length > 1
+      if T.must(s.inreplace_string.split(/^  test do\b/, 2).first).scan(inreplace_regex).length > 1
         odie "Unable to update resource blocks for \"#{formula.name}\" automatically. Please update them manually."
       end
       s.sub! inreplace_regex, new_resource_blocks

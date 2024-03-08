@@ -242,6 +242,7 @@ module Homebrew
         return if user.blank?
 
         tag = SharedAudits.github_tag_from_url(formula.stable.url)
+        tag ||= formula.stable.specs[:tag]
         github_license = GitHub.get_repo_license(user, repo, ref: tag)
         return unless github_license
         return if (licenses + ["NOASSERTION"]).include?(github_license)
@@ -565,7 +566,7 @@ module Homebrew
         user_agents:       [:browser, :default],
         check_content:     true,
         strict:            @strict,
-        use_homebrew_curl: use_homebrew_curl,
+        use_homebrew_curl:,
       ))
         problem http_content_problem
       end
@@ -692,7 +693,7 @@ module Homebrew
 
         ra = ResourceAuditor.new(
           spec, spec_name,
-          online: @online, strict: @strict, only: @only, except: except,
+          online: @online, strict: @strict, only: @only, except:,
           use_homebrew_curl: spec.using == :homebrew_curl
         ).audit
         ra.problems.each do |message|
@@ -781,7 +782,7 @@ module Homebrew
         tag ||= stable.version
 
         if @online
-          error = SharedAudits.gitlab_release(owner, repo, tag, formula: formula)
+          error = SharedAudits.gitlab_release(owner, repo, tag, formula:)
           problem error if error
         end
       when %r{^https://github.com/([\w-]+)/([\w-]+)}
@@ -791,7 +792,7 @@ module Homebrew
         tag ||= formula.stable.specs[:tag]
 
         if @online
-          error = SharedAudits.github_release(owner, repo, tag, formula: formula)
+          error = SharedAudits.github_release(owner, repo, tag, formula:)
           problem error if error
         end
       end
@@ -955,11 +956,11 @@ module Homebrew
     private
 
     def problem(message, location: nil, corrected: false)
-      @problems << ({ message: message, location: location, corrected: corrected })
+      @problems << ({ message:, location:, corrected: })
     end
 
     def new_formula_problem(message, location: nil, corrected: false)
-      @new_formula_problems << ({ message: message, location: location, corrected: corrected })
+      @new_formula_problems << ({ message:, location:, corrected: })
     end
 
     def head_only?(formula)
@@ -975,7 +976,7 @@ module Homebrew
       return false if variations.blank?
 
       MacOSVersion::SYMBOLS.keys.product(OnSystem::ARCH_OPTIONS).each do |os, arch|
-        bottle_tag = Utils::Bottles::Tag.new(system: os, arch: arch)
+        bottle_tag = Utils::Bottles::Tag.new(system: os, arch:)
         next unless bottle_tag.valid_combination?
 
         variation_dependencies = variations.dig(bottle_tag.to_sym, "dependencies")

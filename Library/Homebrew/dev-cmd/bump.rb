@@ -35,6 +35,8 @@ module Homebrew
              description: "Check only formulae."
       switch "--cask", "--casks",
              description: "Check only casks."
+      flag   "--tap=",
+             description: "Check formulae and casks within the given tap, specified as <user>`/`<repo>."
       switch "--installed",
              description: "Check formulae and casks that are currently installed."
       switch "--no-fork",
@@ -49,6 +51,7 @@ module Homebrew
              hidden:      true
 
       conflicts "--cask", "--formula"
+      conflicts "--tap=", "--installed"
       conflicts "--no-pull-requests", "--open-pr"
 
       named_args [:formula, :cask], without_api: true
@@ -68,7 +71,14 @@ module Homebrew
     odisabled "brew bump --force" if args.force?
 
     Homebrew.with_no_api_env do
-      formulae_and_casks = if args.installed?
+      formulae_and_casks = if args.tap
+        tap = Tap.fetch(args.tap)
+        raise UsageError, "`--tap` cannot be used with official taps." if tap.official?
+
+        formulae = args.cask? ? [] : tap.formula_files.map { |path| Formulary.factory(path) }
+        casks = args.formula? ? [] : tap.cask_files.map { |path| Cask::CaskLoader.load(path) }
+        formulae + casks
+      elsif args.installed?
         formulae = args.cask? ? [] : Formula.installed
         casks = args.formula? ? [] : Cask::Caskroom.casks
         formulae + casks
@@ -140,14 +150,14 @@ module Homebrew
       package_data = if formula_or_cask.is_a?(Formula) && formula_or_cask.versioned_formula?
         nil
       else
-        Repology.single_package_query(name, repository: repository)
+        Repology.single_package_query(name, repository:)
       end
 
       retrieve_and_display_info_and_open_pr(
         formula_or_cask,
         name,
         package_data&.values&.first,
-        args:           args,
+        args:,
         ambiguous_cask: ambiguous_casks.include?(formula_or_cask),
       )
     end
@@ -208,8 +218,8 @@ module Homebrew
           formula_or_cask,
           name,
           repositories,
-          args:           args,
-          ambiguous_cask: ambiguous_cask,
+          args:,
+          ambiguous_cask:,
         )
       end
     end
@@ -220,16 +230,20 @@ module Homebrew
   }
   def skip_ineligible_formulae(formula_or_cask)
     if formula_or_cask.is_a?(Formula)
-      return false if !formula_or_cask.disabled? && !formula_or_cask.head_only?
-
+      skip = formula_or_cask.disabled? || formula_or_cask.head_only?
       name = formula_or_cask.name
       text = "Formula is #{formula_or_cask.disabled? ? "disabled" : "HEAD-only"}.\n"
     else
-      return false unless formula_or_cask.disabled?
-
+      skip = formula_or_cask.disabled?
       name = formula_or_cask.token
       text = "Cask is disabled.\n"
     end
+    unless formula_or_cask.tap.allow_bump?(name)
+      skip = true
+      text = "#{text.split.first} is on autobump list.\n"
+    end
+    return false unless skip
+
     ohai name
     puts text
     true
@@ -269,7 +283,7 @@ module Homebrew
 
     version_info = Livecheck.latest_version(
       formula_or_cask,
-      referenced_formula_or_cask: referenced_formula_or_cask,
+      referenced_formula_or_cask:,
       json: true, full_name: false, verbose: true, debug: false
     )
     return "unable to get versions" if version_info.blank?
@@ -292,7 +306,7 @@ module Homebrew
   def retrieve_pull_requests(formula_or_cask, name, state:, version: nil)
     tap_remote_repo = formula_or_cask.tap&.remote_repo || formula_or_cask.tap&.full_name
     pull_requests = begin
-      GitHub.fetch_pull_requests(name, tap_remote_repo, state: state, version: version)
+      GitHub.fetch_pull_requests(name, tap_remote_repo, state:, version:)
     rescue GitHub::API::ValidationFailedError => e
       odebug "Error fetching pull requests for #{formula_or_cask} #{name}: #{e}"
       nil
@@ -309,7 +323,7 @@ module Homebrew
     params(
       formula_or_cask: T.any(Formula, Cask::Cask),
       repositories:    T::Array[T.untyped],
-      args:            T.untyped,
+      args:            CLI::Args,
       name:            String,
     ).returns(VersionBumpInfo)
   }
@@ -326,7 +340,7 @@ module Homebrew
     arch_options = is_cask_with_blocks ? OnSystem::ARCH_OPTIONS : [:arm]
 
     arch_options.each do |arch|
-      SimulateSystem.with arch: arch do
+      SimulateSystem.with(arch:) do
         version_key = is_cask_with_blocks ? arch : :general
 
         # We reload the formula/cask here to ensure we're getting the correct version for the current arch
@@ -401,14 +415,14 @@ module Homebrew
     end.presence
 
     VersionBumpInfo.new(
-      type:                 type,
-      multiple_versions:    multiple_versions,
-      version_name:         version_name,
-      current_version:      current_version,
-      repology_latest:      repology_latest,
-      new_version:          new_version,
-      open_pull_requests:   open_pull_requests,
-      closed_pull_requests: closed_pull_requests,
+      type:,
+      multiple_versions:,
+      version_name:,
+      current_version:,
+      repology_latest:,
+      new_version:,
+      open_pull_requests:,
+      closed_pull_requests:,
     )
   end
 
@@ -417,15 +431,15 @@ module Homebrew
       formula_or_cask: T.any(Formula, Cask::Cask),
       name:            String,
       repositories:    T::Array[T.untyped],
-      args:            T.untyped,
+      args:            CLI::Args,
       ambiguous_cask:  T::Boolean,
     ).void
   }
   def retrieve_and_display_info_and_open_pr(formula_or_cask, name, repositories, args:, ambiguous_cask: false)
-    version_info = retrieve_versions_by_arch(formula_or_cask: formula_or_cask,
-                                             repositories:    repositories,
-                                             args:            args,
-                                             name:            name)
+    version_info = retrieve_versions_by_arch(formula_or_cask:,
+                                             repositories:,
+                                             args:,
+                                             name:)
 
     current_version = version_info.current_version
     new_version = version_info.new_version

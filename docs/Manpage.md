@@ -806,6 +806,8 @@ upgraded formulae or, every 30 days, for all formulae.
   Generate debug symbols on build. Source will be retained in a cache directory.
 * `--display-times`:
   Print install times for each package at the end of the run.
+* `--overwrite`:
+  Delete files that already exist in the prefix while linking.
 * `--cask`:
   Treat all named arguments as casks. If no named arguments are specified, upgrade only outdated casks.
 * `--skip-cask-deps`:
@@ -1029,6 +1031,8 @@ formulae, also displays whether a pull request has been opened with the URL.
   Check only formulae.
 * `--cask`:
   Check only casks.
+* `--tap`:
+  Check formulae and casks within the given tap, specified as *`user`*`/`*`repo`*.
 * `--installed`:
   Check formulae and casks that are currently installed.
 * `--no-fork`:
@@ -1181,7 +1185,7 @@ Display the path to the file being used when invoking `brew` *`cmd`*.
 Summarise contributions to Homebrew repositories.
 
 * `--repositories`:
-  Specify a comma-separated list of repositories to search. Supported repositories: `brew`, `core`, `cask`, `aliases`, `autoupdate`, `bundle`, `command-not-found`, `test-bot`, `services`, `cask-fonts` and `cask-versions`. Omitting this flag, or specifying `--repositories=primary`, searches only the main repositories: brew,core,cask. Specifying `--repositories=all`, searches all repositories. 
+  Specify a comma-separated list of repositories to search. Supported repositories: `brew`, `core`, `cask`, `aliases`, `bundle`, `command-not-found`, `test-bot`, `services`, `cask-fonts` and `cask-versions`. Omitting this flag, or specifying `--repositories=primary`, searches only the main repositories: brew,core,cask. Specifying `--repositories=all`, searches all repositories. 
 * `--from`:
   Date (ISO-8601 format) to start searching contributions. Omitting this flag searches the last year.
 * `--to`:
@@ -1782,47 +1786,6 @@ Show existing aliases. If no aliases are given, print the whole list.
 
 * `--edit`:
   Edit aliases in a text editor. Either one or all aliases may be opened at once. If the given alias doesn't exist it'll be pre-populated with a template.
-
-### `autoupdate` *`subcommand`* [*`interval`*] [*`options`*]
-
-An easy, convenient way to automatically update Homebrew.
-
-This script will run `brew update` in the background once every 24 hours (by default)
-until explicitly told to stop, utilising `launchd`.
-
-`brew autoupdate start` [*``interval``*] [*``options``*]
-<br>Start autoupdating either once every `interval` hours or once every 24 hours.
-Please note the interval has to be passed in seconds, so 12 hours would be
-`brew autoupdate start 43200`. If you want to start the autoupdate immediately
-and on system boot, pass `--immediate`. Pass `--upgrade` or `--cleanup`
-to automatically run `brew upgrade` and/or `brew cleanup` respectively.
-Pass `--enable-notification` to send a notification when the autoupdate
-process has finished successfully.
-
-`brew autoupdate stop`
-<br>Stop autoupdating, but retain plist and logs.
-
-`brew autoupdate delete`
-<br>Cancel the autoupdate, delete the plist and logs.
-
-`brew autoupdate status`
-<br>Print the current status of this tool.
-
-`brew autoupdate version`
-<br>Output this tool's current version, and a short changelog.
-
-* `--upgrade`:
-  Automatically upgrade your installed formulae. If the Caskroom exists locally then casks will be upgraded as well. Must be passed with `start`.
-* `--greedy`:
-  Upgrade casks with `--greedy` (include auto-updating casks). Must be passed with `start`.
-* `--cleanup`:
-  Automatically clean Homebrew's cache and logs. Must be passed with `start`.
-* `--enable-notification`:
-  Send a notification when the autoupdate process has finished successfully, if `terminal-notifier` is installed and found. Must be passed with `start`. Note: notifications are enabled by default on macOS Catalina and newer.
-* `--immediate`:
-  Starts the autoupdate command immediately and on system boot, instead of waiting for one interval (24 hours by default) to pass first. Must be passed with `start`.
-* `--sudo`:
-  If a cask requires `sudo`, autoupdate will open a GUI to ask for the password. Requires https://formulae.brew.sh/formula/pinentry-mac to be installed.
 
 ### `bundle` [*`subcommand`*]
 
@@ -2453,7 +2416,7 @@ Homebrew's Project Leadership Committee is Colin Dean, Issy Long, Mike McQuaid, 
 
 Homebrew's Technical Steering Committee is Bo Anderson, FX Coudert, Michka Popoff, Mike McQuaid and Rylan Polster.
 
-Homebrew's maintainers are Alexander Bayandin, Bevan Kay, Bo Anderson, Branch Vincent, Caleb Xu, Carlo Cabrera, David Baumgold, Dustin Rodrigues, Eric Knibbe, FX Coudert, George Adams, Issy Long, Justin Krehel, Markus Reiter, Miccal Matthews, Michael Cho, Michka Popoff, Mike McQuaid, Nanda H Krishna, Patrick Linnane, Razvan Azamfirei, Rui Chen, Ruoyu Zhong, Rylan Polster, Sam Ford, Sean Molenaar and Thierry Moisan.
+Homebrew's maintainers are Alexander Bayandin, Bevan Kay, Bo Anderson, Branch Vincent, Caleb Xu, Carlo Cabrera, David Baumgold, Douglas Eichelberger, Dustin Rodrigues, Eric Knibbe, FX Coudert, Issy Long, Justin Krehel, Markus Reiter, Miccal Matthews, Michael Cho, Michka Popoff, Mike McQuaid, Nanda H Krishna, Patrick Linnane, Razvan Azamfirei, Rui Chen, Ruoyu Zhong, Rylan Polster, Sam Ford, Sean Molenaar and Thierry Moisan.
 
 Former maintainers with significant contributions include Misty De Méo, Shaun Jackman, Vítor Galvão, Claudia Pellegrino, Seeker, William Woodruff, Jan Viljanen, JCount, commitay, Dominyk Tiller, Tim Smith, Baptiste Fontaine, Xu Cheng, Martin Afanasjew, Brett Koonce, Charlie Sharpsteen, Jack Nagel, Adam Vandenberg, Andrew Janke, Alex Dunn, neutric, Tomasz Pajor, Uladzislau Shablinski, Alyssa Ross, ilovezfs, Chongyu Zhu and Homebrew's creator: Max Howell.
 
