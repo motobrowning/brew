@@ -4,10 +4,8 @@
 require "version"
 
 # Helper functions for querying operating system information.
-#
-# @api private
 module OS
-  # Check if the operating system is macOS.
+  # Check whether the operating system is macOS.
   #
   # @api public
   sig { returns(T::Boolean) }
@@ -17,7 +15,7 @@ module OS
     RbConfig::CONFIG["host_os"].include? "darwin"
   end
 
-  # Check if the operating system is Linux.
+  # Check whether the operating system is Linux.
   #
   # @api public
   sig { returns(T::Boolean) }
@@ -32,6 +30,7 @@ module OS
   # @api public
   sig { returns(Version) }
   def self.kernel_version
+    require "utils/popen"
     @kernel_version ||= Version.new(Utils.safe_popen_read("uname", "-r").chomp)
   end
 
@@ -40,6 +39,7 @@ module OS
   # @api public
   sig { returns(String) }
   def self.kernel_name
+    require "utils/popen"
     @kernel_name ||= Utils.safe_popen_read("uname", "-s").chomp
   end
 

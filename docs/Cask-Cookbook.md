@@ -616,7 +616,7 @@ brew install firefox --language=it
 
 ### Stanza: `livecheck`
 
-The `livecheck` stanza is used to automatically fetch the latest version of a cask from changelogs, release notes, appcasts, etc. Since the main [homebrew/cask](https://github.com/Homebrew/homebrew-cask) repository only accepts submissions for stable versions of software (and [documented exceptions](https://docs.brew.sh/Acceptable-Casks#but-there-is-no-stable-version)), this allows for verifying that the submitted version is the latest, and alerting when a newer version is available using [`brew livecheck`](Brew-Livecheck.md).
+The `livecheck` stanza is used to automatically fetch the latest version of a cask from changelogs, release notes, appcasts, etc.
 
 Every `livecheck` block must contain a `url`, which can be either a string or a symbol pointing to other URLs in the cask (`:url` or `:homepage`).
 
@@ -1053,7 +1053,7 @@ The block will be called immediately before downloading; its result value will b
 
 You can use the `url` stanza with either a direct argument or a block but not with both.
 
-Example of using the block syntax: [vlc-nightly.rb](https://github.com/Homebrew/homebrew-cask-versions/blob/d3b9d0fdcf83f1f87c3ad64a852323a6e687c5f7/Casks/vlc-nightly.rb#L7-L12)
+Example of using the block syntax: [vlc@nightly.rb](https://github.com/Homebrew/homebrew-cask/blob/0b2b76ad8c3fbf4e1ee2f5e758640c4963ad6aaf/Casks/v/vlc%40nightly.rb#L7-L12)
 
 ##### Mixing additional URL parameters with the block syntax
 
@@ -1285,7 +1285,6 @@ This section describes the algorithm implemented in the `generate_cask_token` sc
 * [Cask Filenames](#cask-filenames)
 * [Cask Headers](#cask-headers)
 * [Cask Token Examples](#cask-token-examples)
-* [Tap-Specific Cask Token Examples](#tap-specific-cask-token-examples)
 * [Special Affixes](#special-affixes)
 
 ### Purpose
@@ -1375,6 +1374,14 @@ To convert the App’s Simplified Name (above) to a token:
 * Collapse a series of multiple hyphens into one hyphen.
 * Delete a leading or trailing hyphen.
 
+### Casks pinned to specific versions
+
+Casks pinned to a specific version of the application (i.e. [`carbon-copy-cloner@5`](https://github.com/Homebrew/homebrew-cask/blob/1b8f44198e5e184c597ee07454a1e10f97f36b15/Casks/c/carbon-copy-cloner%405.rb)) should use the same token as the standard cask with a suffix of `@<version-number`. For Carbon Copy Cloner (`carbon-copy-cloner`), pinned to version 5, the token should be `carbon-copy-cloner@5`.
+
+### Casks pinned to development channels
+
+Casks that use an development "channel", such as betas, should use the same token as the standard cask with a suffix of `@<channel>`. For Google Chrome (`google-chrome`), using the "beta" channel, the token should be `google-chrome@beta`.
+
 ### Cask filenames
 
 Casks are stored in a Ruby file named after the token, with the file extension `.rb`.
@@ -1395,12 +1402,13 @@ These illustrate most of the rules for generating a token:
 | `LPK25 Editor.app`     | LPK25 Editor        | lpk25-editor     | `lpk25-editor.rb` |
 | `Sublime Text 2.app`   | Sublime Text        | sublime-text     | `sublime-text.rb` |
 
-#### Tap-specific cask token examples
+For versioned/development channel casks:
 
-Cask taps have naming conventions specific to each tap.
-
-* [Homebrew/cask-versions](https://github.com/Homebrew/homebrew-cask-versions/blob/HEAD/CONTRIBUTING.md#naming-versions-casks)
-* [Homebrew/cask-fonts](https://github.com/Homebrew/homebrew-cask-fonts/blob/HEAD/CONTRIBUTING.md#naming-font-casks)
+| Standard Cask Token     | Derivative          | Cask Token           | Filename  |
+|------------------------|---------------------|-----------------------|----------------------|
+| `google-chrome`        | Beta Channel        | `google-chrome@beta`  | `google-chrome@beta.rb` |
+| `vlc`                  | Nightly Channel     | `vlc@nightly`         | `vlc@nightly.rb` |
+| `carbon-copy-cloner`   | Pinned to version 5 | `carbon-copy-cloner@5`| `carbon-copy-cloner@5.rb` |
 
 ### Special affixes
 

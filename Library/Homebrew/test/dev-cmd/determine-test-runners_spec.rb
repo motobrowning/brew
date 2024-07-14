@@ -3,7 +3,7 @@
 require "dev-cmd/determine-test-runners"
 require "cmd/shared_examples/args_parse"
 
-RSpec.describe "brew determine-test-runners" do
+RSpec.describe Homebrew::DevCmd::DetermineTestRunners do
   def get_runners(file)
     runner_line = File.open(file).first
     json_text = runner_line[/runners=(.*)/, 1]
@@ -22,9 +22,9 @@ RSpec.describe "brew determine-test-runners" do
   let(:ephemeral_suffix) { "-12345" }
   let(:runner_env) do
     {
-      "HOMEBREW_LINUX_RUNNER"  => linux_runner,
-      "HOMEBREW_MACOS_TIMEOUT" => "90",
-      "GITHUB_RUN_ID"          => ephemeral_suffix.split("-").second,
+      "HOMEBREW_LINUX_RUNNER"       => linux_runner,
+      "HOMEBREW_MACOS_LONG_TIMEOUT" => "false",
+      "GITHUB_RUN_ID"               => ephemeral_suffix.split("-").second,
     }.freeze
   end
   let(:all_runners) do
@@ -33,7 +33,7 @@ RSpec.describe "brew determine-test-runners" do
       macos_version = MacOSVersion.new(v)
       next if macos_version.unsupported_release?
 
-      out << v
+      out << "#{v}-x86_64"
       out << "#{v}-arm64"
     end
 

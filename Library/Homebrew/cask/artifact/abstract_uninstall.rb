@@ -12,8 +12,6 @@ require "system_command"
 module Cask
   module Artifact
     # Abstract superclass for uninstall artifacts.
-    #
-    # @api private
     class AbstractUninstall < AbstractArtifact
       include SystemCommand::Mixin
 
@@ -40,7 +38,7 @@ module Cask
       def initialize(cask, **directives)
         directives.assert_valid_keys(*ORDERED_DIRECTIVES)
 
-        super(cask, **directives)
+        super
         directives[:signal] = Array(directives[:signal]).flatten.each_slice(2).to_a
         @directives = directives
 
@@ -459,12 +457,13 @@ module Cask
       def trash_paths(*paths, command: nil, **_)
         return if paths.empty?
 
-        stdout, stderr, = system_command HOMEBREW_LIBRARY_PATH/"cask/utils/trash.swift",
-                                         args:         paths,
-                                         print_stderr: false
+        stdout, = system_command HOMEBREW_LIBRARY_PATH/"cask/utils/trash.swift",
+                                 args:         paths,
+                                 print_stderr: Homebrew::EnvConfig.developer?
 
-        trashed = stdout.split(":").sort
-        untrashable = stderr.split(":").sort
+        trashed, _, untrashable = stdout.partition("\n")
+        trashed = trashed.split(":")
+        untrashable = untrashable.split(":")
 
         return trashed, untrashable if untrashable.empty?
 
@@ -472,7 +471,7 @@ module Cask
           Utils.gain_permissions(path, ["-R"], SystemCommand) do
             system_command! HOMEBREW_LIBRARY_PATH/"cask/utils/trash.swift",
                             args:         [path],
-                            print_stderr: false
+                            print_stderr: Homebrew::EnvConfig.developer?
           end
 
           true
@@ -510,7 +509,7 @@ module Cask
           end
 
           # Directory counts as empty if it only contains a `.DS_Store`.
-          if children.include?(ds_store = resolved_path/".DS_Store")
+          if children.include?((ds_store = resolved_path/".DS_Store"))
             Utils.gain_permissions_remove(ds_store, command:)
             children.delete(ds_store)
           end

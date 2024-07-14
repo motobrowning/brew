@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "tempfile"
@@ -14,7 +14,7 @@ module UnpackStrategy
     module Bom
       extend SystemCommand::Mixin
 
-      DMG_METADATA = Set.new(%w[
+      DMG_METADATA = T.let(Set.new(%w[
         .background
         .com.apple.timemachine.donotpresent
         .com.apple.timemachine.supported
@@ -26,12 +26,13 @@ module UnpackStrategy
         .TemporaryItems
         .Trashes
         .VolumeIcon.icns
-      ]).freeze
+      ]).freeze, T::Set[String])
       private_constant :DMG_METADATA
 
       class Error < RuntimeError; end
 
       class EmptyError < Error
+        sig { params(path: Pathname).void }
         def initialize(path)
           super "BOM for path '#{path}' is empty."
         end
@@ -81,6 +82,7 @@ module UnpackStrategy
     class Mount
       include UnpackStrategy
 
+      sig { params(verbose: T::Boolean).void }
       def eject(verbose: false)
         tries = 3
         begin
@@ -121,9 +123,15 @@ module UnpackStrategy
         end
       end
 
+      sig { override.returns(T::Array[String]) }
+      def self.extensions = []
+
+      sig { override.params(_path: Pathname).returns(T::Boolean) }
+      def self.can_extract?(_path) = false
+
       private
 
-      sig { override.params(unpack_dir: Pathname, basename: Pathname, verbose: T::Boolean).returns(T.untyped) }
+      sig { override.params(unpack_dir: Pathname, basename: Pathname, verbose: T::Boolean).void }
       def extract_to_dir(unpack_dir, basename:, verbose:)
         tries = 3
         bom = begin
@@ -147,8 +155,16 @@ module UnpackStrategy
                             verbose:
           end
 
+          bomfile_path = T.must(bomfile.path)
+
+          # Ditto will try to write as the UID, not the EUID and the Tempfile has 0700 permissions.
+          if Process.euid != Process.uid
+            FileUtils.chown(nil, Process.gid, bomfile_path)
+            FileUtils.chmod "g+rw", bomfile_path
+          end
+
           system_command!("ditto",
-                          args:    ["--bom", bomfile.path, "--", path, unpack_dir],
+                          args:    ["--bom", bomfile_path, "--", path, unpack_dir],
                           verbose:)
 
           FileUtils.chmod "u+w", Pathname.glob(unpack_dir/"**/*", File::FNM_DOTMATCH).reject(&:symlink?)
@@ -157,11 +173,12 @@ module UnpackStrategy
     end
     private_constant :Mount
 
-    sig { returns(T::Array[String]) }
+    sig { override.returns(T::Array[String]) }
     def self.extensions
       [".dmg"]
     end
 
+    sig { override.params(path: Pathname).returns(T::Boolean) }
     def self.can_extract?(path)
       stdout, _, status = system_command("hdiutil", args: ["imageinfo", "-format", path], print_stderr: false)
       status.success? && !stdout.empty?
@@ -169,7 +186,7 @@ module UnpackStrategy
 
     private
 
-    sig { override.params(unpack_dir: Pathname, basename: Pathname, verbose: T::Boolean).returns(T.untyped) }
+    sig { override.params(unpack_dir: Pathname, basename: Pathname, verbose: T::Boolean).void }
     def extract_to_dir(unpack_dir, basename:, verbose:)
       mount(verbose:) do |mounts|
         raise "No mounts found in '#{path}'; perhaps this is a bad disk image?" if mounts.empty?
@@ -180,7 +197,8 @@ module UnpackStrategy
       end
     end
 
-    def mount(verbose: false)
+    sig { params(verbose: T::Boolean, _block: T.proc.params(arg0: T::Array[Mount]).void).void }
+    def mount(verbose: false, &_block)
       Dir.mktmpdir("homebrew-dmg", HOMEBREW_TEMP) do |mount_dir|
         mount_dir = Pathname(mount_dir)
 

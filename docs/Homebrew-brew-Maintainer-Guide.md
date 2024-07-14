@@ -2,32 +2,20 @@
 
 This document describes a few components of the `Homebrew/brew` repository that are useful for maintainers to be aware of, but don't necessarily need to appear in documentation for most users and contributors.
 
-## Reviewing PRs
-
-Using `gh pr checkout NUMBER` is a super easy way to check out a PR branch using the GitHub CLI.
-
-When reviewing a PR, use "comment", "approve", or "request changes" when submitting based on the following guidelines:
-
-- Comment: if the PR isn't quite ready to be merged
-- Approve: if you feel that the PR is in a good state to be merged, even if there are non-blocking changes you'd like to be made
-- Request changes: if you feel strongly that the PR is likely to cause a problem for users or have another reason to oppose the PR.
-
 ## Merging PRs
 
 Merging is done using the standard "Merge" button in the `Homebrew/brew` repository to preserve history and GPG commit signing. The "Squash and Merge" and "Rebase and Merge" buttons are disabled.
 
 PRs must meet the following conditions to be merged:
 
-- Have at least one maintainer (or [@BrewTestBot](https://github.com/BrewTestBot)) approval. See the [Automatic approvals](#automatic-approvals) section below for more details about how [@BrewTestBot](https://github.com/BrewTestBot) approves PRs.
+- Have at least one maintainer approval.
 - Have passing CI (continuous integration). This is a _mandatory_ step. PRs with failing CI should _never_ be merged. See the [CI](#ci) section below for more information about `Homebrew/brew` CI.
 
 If possible, PRs should also have GPG-signed commits (see the private `ops` repository for instructions on setting this up).
 
 ### Automatic approvals
 
-To ensure that non-urgent PRs have the opportunity to be seen and reviewed by any other maintainers who wish to take a look, all PRs require an approval before they can be merged. However, some PRs are urgent enough that they need to be merged without an approval by another maintainer.
-
-As a compromise between always needing a review and allowing maintainers to merge PRs they deem critical, the `Triage` CI job will ensure that if a PR is labelled `critical`, [@BrewTestBot](https://github.com/BrewTestBot) approves the PR, allowing it to be merged.
+To ensure that non-urgent PRs have the opportunity to be seen and reviewed by any other maintainers who wish to take a look, all PRs require an approval before they can be merged.
 
 ## CI
 
@@ -35,7 +23,6 @@ Every PR in `Homebrew/brew` runs a series of CI tests to try to prevent bugs fro
 
 There are many checks that run on every PR. The following is a quick list of the various checks and what they represent:
 
-- `Triage / review`: This verifies that the PR has been open for long enough. See the [Automatic approvals](#automatic-approvals) section above for more information about automatic approvals.
 - `Vendor Gems / vendor-gems`: This is skipped except for dependabot PRs. It updates the RBI files to match any new/changed dependencies. See [Type Checking With Sorbet](Typechecking.md) for more information about RBI files and typechecking.
 - `Codecov / codecov/patch` and `codecov/project`: These show the Codecov report for the PR. See the [`brew tests` and Codecov](#brew-tests-and-codecov) section below for more info about Codecov.
 - `CI / vendored gems`: This checks whether there was a change to the vendored gems on Linux that needs to be committed to the PR branch.

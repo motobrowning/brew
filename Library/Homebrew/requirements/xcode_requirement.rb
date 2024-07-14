@@ -4,8 +4,6 @@
 require "requirement"
 
 # A requirement on Xcode.
-#
-# @api private
 class XcodeRequirement < Requirement
   fatal true
 
@@ -18,7 +16,7 @@ class XcodeRequirement < Requirement
 
   def initialize(tags = [])
     @version = tags.shift if tags.first.to_s.match?(/(\d\.)+\d/)
-    super(tags)
+    super
   end
 
   sig { returns(T::Boolean) }

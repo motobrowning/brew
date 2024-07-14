@@ -6,8 +6,6 @@ require "erb"
 
 module Homebrew
   # Class for generating a formula from a template.
-  #
-  # @api private
   class FormulaCreator
     attr_accessor :name
 
@@ -31,6 +29,7 @@ module Homebrew
       raise TapUnavailableError, @tap.name unless @tap.installed?
     end
 
+    sig { params(url: String).returns(T.nilable(String)) }
     def self.name_from_url(url)
       stem = Pathname.new(url).stem
       # special cases first
@@ -47,6 +46,7 @@ module Homebrew
       end
     end
 
+    sig { void }
     def parse_url
       @name = FormulaCreator.name_from_url(@url) if @name.blank?
       odebug "name_from_url: #{@name}"
@@ -65,6 +65,7 @@ module Homebrew
       end
     end
 
+    sig { returns(Pathname) }
     def write_formula!
       raise ArgumentError, "name is blank!" if @name.blank?
       raise ArgumentError, "tap is blank!" if @tap.blank?
@@ -98,6 +99,8 @@ module Homebrew
 
     sig { returns(String) }
     def template
+      # FIXME: https://github.com/errata-ai/vale/issues/818
+      # <!-- vale off -->
       <<~ERB
         # Documentation: https://docs.brew.sh/Formula-Cookbook
         #                https://rubydoc.brew.sh/Formula
@@ -182,14 +185,14 @@ module Homebrew
             ENV.prepend_create_path "PERL5LIB", libexec/"lib/perl5"
             ENV.prepend_path "PERL5LIB", libexec/"lib"
 
-            # Stage additional dependency (Makefile.PL style)
+            # Stage additional dependency (`Makefile.PL` style).
             # resource("").stage do
             #   system "perl", "Makefile.PL", "INSTALL_BASE=\#{libexec}"
             #   system "make"
             #   system "make", "install"
             # end
 
-            # Stage additional dependency (Build.PL style)
+            # Stage additional dependency (`Build.PL` style).
             # resource("").stage do
             #   system "perl", "Build.PL", "--install_base", libexec
             #   system "./Build"
@@ -230,6 +233,7 @@ module Homebrew
           end
         end
       ERB
+      # <!-- vale on -->
     end
   end
 end

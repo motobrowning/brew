@@ -1,10 +1,9 @@
 # typed: true
 # frozen_string_literal: true
 
-require "shellwords"
-require "utils"
-
 # Raised when a command is used wrong.
+#
+# @api internal
 class UsageError < RuntimeError
   attr_reader :reason
 
@@ -47,6 +46,9 @@ class UnsupportedInstallationMethod < RuntimeError; end
 
 class MultipleVersionsInstalledError < RuntimeError; end
 
+# Raised when a path is not a keg.
+#
+# @api internal
 class NotAKegError < RuntimeError; end
 
 # Raised when a keg doesn't exist.
@@ -73,8 +75,6 @@ end
 class FormulaSpecificationError < StandardError; end
 
 # Raised when a deprecated method is used.
-#
-# @api private
 class MethodDeprecatedError < StandardError
   attr_accessor :issues_url
 end
@@ -133,6 +133,8 @@ class TapFormulaOrCaskUnavailableError < FormulaOrCaskUnavailableError
 end
 
 # Raised when a formula is not available.
+#
+# @api internal
 class FormulaUnavailableError < FormulaOrCaskUnavailableError
   attr_accessor :dependent
 
@@ -148,11 +150,10 @@ class FormulaUnavailableError < FormulaOrCaskUnavailableError
 end
 
 # Shared methods for formula class errors.
-#
-# @api private
 module FormulaClassUnavailableErrorModule
   attr_reader :path, :class_name, :class_list
 
+  sig { returns(String) }
   def to_s
     s = super
     s += "\nIn formula file: #{path}"
@@ -192,8 +193,6 @@ class FormulaClassUnavailableError < FormulaUnavailableError
 end
 
 # Shared methods for formula unreadable errors.
-#
-# @api private
 module FormulaUnreadableErrorModule
   attr_reader :formula_error
 
@@ -225,6 +224,7 @@ class TapFormulaUnavailableError < FormulaUnavailableError
     super "#{tap}/#{name}"
   end
 
+  sig { returns(String) }
   def to_s
     s = super
     s += "\nPlease tap it and then try again: brew tap #{tap}" unless tap.installed?
@@ -480,8 +480,8 @@ class BuildError < RuntimeError
   sig { returns(T::Array[T.untyped]) }
   def fetch_issues
     GitHub.issues_for_formula(formula.name, tap: formula.tap, state: "open", type: "issue")
-  rescue GitHub::API::RateLimitExceededError => e
-    opoo e.message
+  rescue GitHub::API::Error => e
+    opoo "Unable to query GitHub for recent issues on the tap\n#{e.message}"
     []
   end
 
@@ -551,6 +551,8 @@ end
 # installed in a situation where a bottle is required.
 class UnbottledError < RuntimeError
   def initialize(formulae)
+    require "utils"
+
     msg = +<<~EOS
       The following #{Utils.pluralize("formula", formulae.count, plural: "e")} cannot be installed from #{Utils.pluralize("bottle", formulae.count)} and must be
       built from source.
@@ -562,7 +564,7 @@ class UnbottledError < RuntimeError
   end
 end
 
-# Raised by Homebrew.install, Homebrew.reinstall, and Homebrew.upgrade
+# Raised by `Homebrew.install`, `Homebrew.reinstall` and `Homebrew.upgrade`
 # if the user passes any flags/environment that would case a bottle-only
 # installation on a system without build tools to fail.
 class BuildFlagsError < RuntimeError

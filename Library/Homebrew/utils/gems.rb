@@ -10,11 +10,11 @@ require "English"
 module Homebrew
   # Keep in sync with the `Gemfile.lock`'s BUNDLED WITH.
   # After updating this, run `brew vendor-gems --update=--bundler`.
-  HOMEBREW_BUNDLER_VERSION = "2.4.18"
+  HOMEBREW_BUNDLER_VERSION = "2.5.11"
 
   # Bump this whenever a committed vendored gem is later added to or exclusion removed from gitignore.
   # This will trigger it to reinstall properly if `brew install-bundler-gems` needs it.
-  VENDOR_VERSION = 6
+  VENDOR_VERSION = 7
   private_constant :VENDOR_VERSION
 
   RUBY_BUNDLE_VENDOR_DIRECTORY = (HOMEBREW_LIBRARY_PATH/"vendor/bundle/ruby").freeze
@@ -32,17 +32,16 @@ module Homebrew
 
   module_function
 
-  # @api private
   def gemfile
     File.join(ENV.fetch("HOMEBREW_LIBRARY"), "Homebrew", "Gemfile")
   end
+  private_class_method :gemfile
 
-  # @api private
   def bundler_definition
     @bundler_definition ||= Bundler::Definition.build(Bundler.default_gemfile, Bundler.default_lockfile, false)
   end
+  private_class_method :bundler_definition
 
-  # @api private
   def valid_gem_groups
     install_bundler!
     require "bundler"
@@ -157,6 +156,7 @@ module Homebrew
       File.executable?(File.join(path, executable))
     end
   end
+  private_class_method :find_in_path
 
   def install_bundler!
     old_bundler_version = ENV.fetch("BUNDLER_VERSION", nil)
@@ -181,6 +181,7 @@ module Homebrew
       []
     end
   end
+  private_class_method :user_gem_groups
 
   def write_user_gem_groups(groups)
     return if @user_gem_groups == groups && GEM_GROUPS_FILE.exist?
@@ -203,6 +204,7 @@ module Homebrew
 
     @user_gem_groups = groups
   end
+  private_class_method :write_user_gem_groups
 
   def forget_user_gem_groups!
     GEM_GROUPS_FILE.truncate(0) if GEM_GROUPS_FILE.exist?
@@ -216,6 +218,7 @@ module Homebrew
       0
     end
   end
+  private_class_method :user_vendor_version
 
   def install_bundler_gems!(only_warn_on_failure: false, setup_path: true, groups: [])
     old_path = ENV.fetch("PATH", nil)
@@ -228,7 +231,7 @@ module Homebrew
     invalid_groups = groups - valid_gem_groups
     raise ArgumentError, "Invalid gem groups: #{invalid_groups.join(", ")}" unless invalid_groups.empty?
 
-    # tests should not modify the state of the repo
+    # Tests should not modify the state of the repository.
     if ENV["HOMEBREW_TESTS"]
       setup_gem_environment!
       return
@@ -236,10 +239,13 @@ module Homebrew
 
     install_bundler!
 
-    # Combine the passed groups with the ones stored in settings
+    # Combine the passed groups with the ones stored in settings.
     groups |= (user_gem_groups & valid_gem_groups)
     groups.sort!
 
+    if (homebrew_bundle_user_cache = ENV.fetch("HOMEBREW_BUNDLE_USER_CACHE", nil))
+      ENV["BUNDLE_USER_CACHE"] = homebrew_bundle_user_cache
+    end
     ENV["BUNDLE_GEMFILE"] = gemfile
     ENV["BUNDLE_WITH"] = groups.join(" ")
     ENV["BUNDLE_FROZEN"] = "true"
@@ -293,7 +299,12 @@ module Homebrew
       end
 
       bundle_installed = if bundle_install_required
-        if system bundle, "install", out: :err
+        Process.wait(fork do
+          # Native build scripts fail if EUID != UID
+          Process::UID.change_privilege(Process.euid) if Process.euid != Process.uid
+          exec bundle, "install", out: :err
+        end)
+        if $CHILD_STATUS.success?
           true
         else
           message = <<~EOS

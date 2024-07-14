@@ -9,8 +9,6 @@ require "upgrade"
 
 module Homebrew
   # Helper module for performing (pre-)install checks.
-  #
-  # @api private
   module Install
     class << self
       def perform_preinstall_checks(all_fatal: false, cc: nil)
@@ -213,7 +211,7 @@ module Homebrew
         return false unless formula.opt_prefix.directory?
 
         keg = Keg.new(formula.opt_prefix.resolved_path)
-        tab = Tab.for_keg(keg)
+        tab = keg.tab
         unless tab.installed_on_request
           tab.installed_on_request = true
           tab.write
@@ -329,12 +327,6 @@ module Homebrew
       def attempt_directory_creation
         Keg::MUST_EXIST_DIRECTORIES.each do |dir|
           FileUtils.mkdir_p(dir) unless dir.exist?
-
-          # Create these files to ensure that these directories aren't removed
-          # by the Catalina installer.
-          # (https://github.com/Homebrew/brew/issues/6263)
-          keep_file = dir/".keepme"
-          FileUtils.touch(keep_file) unless keep_file.exist?
         rescue
           nil
         end

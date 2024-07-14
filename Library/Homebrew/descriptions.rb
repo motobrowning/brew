@@ -6,12 +6,12 @@ require "formula_versions"
 require "search"
 
 # Helper class for printing and searching descriptions.
-#
-# @api private
 class Descriptions
   # Given a regex, find all formulae whose specified fields contain a match.
-  def self.search(string_or_regex, field, cache_store, eval_all = Homebrew::EnvConfig.eval_all?)
-    cache_store.populate_if_empty!(eval_all:)
+  def self.search(string_or_regex, field, cache_store,
+                  eval_all = Homebrew::EnvConfig.eval_all?, cache_store_hash: false)
+
+    cache_store.populate_if_empty!(eval_all:) unless cache_store_hash
 
     results = case field
     when :name

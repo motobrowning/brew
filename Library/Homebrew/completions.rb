@@ -7,8 +7,6 @@ require "erb"
 
 module Homebrew
   # Helper functions for generating shell completions.
-  #
-  # @api private
   module Completions
     Variables = Struct.new(
       :aliases,
@@ -72,7 +70,7 @@ module Homebrew
     sig { void }
     def self.link!
       Settings.write :linkcompletions, true
-      Tap.select(&:installed?).each do |tap|
+      Tap.installed.each do |tap|
         Utils::Link.link_completions tap.path, "brew completions link"
       end
     end
@@ -80,7 +78,7 @@ module Homebrew
     sig { void }
     def self.unlink!
       Settings.write :linkcompletions, false
-      Tap.select(&:installed?).each do |tap|
+      Tap.installed.each do |tap|
         next if tap.official?
 
         Utils::Link.unlink_completions tap.path
@@ -94,7 +92,7 @@ module Homebrew
 
     sig { returns(T::Boolean) }
     def self.completions_to_link?
-      Tap.select(&:installed?).each do |tap|
+      Tap.installed.each do |tap|
         next if tap.official?
 
         SHELLS.each do |shell|

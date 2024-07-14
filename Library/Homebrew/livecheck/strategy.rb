@@ -1,5 +1,7 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
+
+require "utils/curl"
 
 module Homebrew
   module Livecheck
@@ -7,8 +9,6 @@ module Homebrew
     # as some general-purpose methods for working with them. Within the context
     # of the `brew livecheck` command, strategies are established procedures
     # for finding new software versions at a given source.
-    #
-    # @api private
     module Strategy
       extend Utils::Curl
 
@@ -27,13 +27,13 @@ module Homebrew
 
       # cURL does not set a default `--max-time` value, so we provide a value
       # to ensure cURL will time out in a reasonable amount of time.
-      CURL_MAX_TIME = CURL_CONNECT_TIMEOUT + 5
+      CURL_MAX_TIME = T.let(CURL_CONNECT_TIMEOUT + 5, Integer)
 
       # The `curl` process will sometimes hang indefinitely (despite setting
       # the `--max-time` argument) and it needs to be quit for livecheck to
       # continue. This value is used to set the `timeout` argument on
       # `Utils::Curl` method calls in {Strategy}.
-      CURL_PROCESS_TIMEOUT = CURL_MAX_TIME + 5
+      CURL_PROCESS_TIMEOUT = T.let(CURL_MAX_TIME + 5, Integer)
 
       # The maximum number of redirections that `curl` should allow.
       MAX_REDIRECTIONS = 5
@@ -43,20 +43,20 @@ module Homebrew
       # number of responses in this context. The `+ 1` here accounts for the
       # situation where there are exactly `MAX_REDIRECTIONS` number of
       # redirections, followed by a final `200 OK` response.
-      MAX_PARSE_ITERATIONS = MAX_REDIRECTIONS + 1
+      MAX_PARSE_ITERATIONS = T.let(MAX_REDIRECTIONS + 1, Integer)
 
       # Baseline `curl` arguments used in {Strategy} methods.
-      DEFAULT_CURL_ARGS = [
+      DEFAULT_CURL_ARGS = T.let([
         # Follow redirections to handle mirrors, relocations, etc.
         "--location",
         "--max-redirs", MAX_REDIRECTIONS.to_s,
         # Avoid progress bar text, so we can reliably identify `curl` error
         # messages in output
         "--silent"
-      ].freeze
+      ].freeze, T::Array[String])
 
       # `curl` arguments used in `Strategy#page_content` method.
-      PAGE_CONTENT_CURL_ARGS = ([
+      PAGE_CONTENT_CURL_ARGS = T.let(([
         "--compressed",
         # Return an error when the HTTP response code is 400 or greater but
         # continue to return body content
@@ -64,10 +64,10 @@ module Homebrew
         # Include HTTP response headers in output, so we can identify the
         # final URL after any redirections
         "--include",
-      ] + DEFAULT_CURL_ARGS).freeze
+      ] + DEFAULT_CURL_ARGS).freeze, T::Array[String])
 
       # Baseline `curl` options used in {Strategy} methods.
-      DEFAULT_CURL_OPTIONS = {
+      DEFAULT_CURL_OPTIONS = T.let({
         print_stdout:    false,
         print_stderr:    false,
         debug:           false,
@@ -76,7 +76,7 @@ module Homebrew
         connect_timeout: CURL_CONNECT_TIMEOUT,
         max_time:        CURL_MAX_TIME,
         retries:         0,
-      }.freeze
+      }.freeze, T::Hash[Symbol, T.untyped])
 
       # A regex used to identify a tarball extension at the end of a string.
       TARBALL_EXTENSION_REGEX = /
@@ -99,17 +99,13 @@ module Homebrew
       # @return [Hash]
       sig { returns(T::Hash[Symbol, T.untyped]) }
       def strategies
-        return @strategies if defined? @strategies
-
-        @strategies = {}
-        Strategy.constants.sort.each do |const_symbol|
+        @strategies ||= T.let(Strategy.constants.sort.each_with_object({}) do |const_symbol, hash|
           constant = Strategy.const_get(const_symbol)
           next unless constant.is_a?(Class)
 
           key = Utils.underscore(const_symbol).to_sym
-          @strategies[key] = constant
-        end
-        @strategies
+          hash[key] = constant
+        end, T.nilable(T::Hash[Symbol, T.untyped]))
       end
       private_class_method :strategies
 
@@ -221,7 +217,7 @@ module Homebrew
           stdout, stderr, status = curl_output(
             *PAGE_CONTENT_CURL_ARGS, url,
             **DEFAULT_CURL_OPTIONS,
-            use_homebrew_curl: homebrew_curl,
+            use_homebrew_curl: homebrew_curl || !curl_supports_fail_with_body?,
             user_agent:
           )
           next unless status.success?

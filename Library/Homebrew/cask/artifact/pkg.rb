@@ -10,8 +10,6 @@ require "extend/hash/keys"
 module Cask
   module Artifact
     # Artifact corresponding to the `pkg` stanza.
-    #
-    # @api private
     class Pkg < AbstractArtifact
       attr_reader :path, :stanza_options
 
@@ -21,7 +19,7 @@ module Cask
       end
 
       def initialize(cask, path, **stanza_options)
-        super(cask, path, **stanza_options)
+        super
         @path = cask.staged_path.join(path)
         @stanza_options = stanza_options
       end

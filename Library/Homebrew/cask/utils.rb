@@ -8,8 +8,6 @@ BUG_REPORTS_URL = "https://github.com/Homebrew/homebrew-cask#reporting-bugs"
 
 module Cask
   # Helper functions for various cask operations.
-  #
-  # @api private
   module Utils
     def self.gain_permissions_mkpath(path, command: SystemCommand)
       dir = path.ascend.find(&:directory?)
@@ -68,15 +66,19 @@ module Cask
       rescue
         # in case of permissions problems
         unless tried_permissions
+          print_stderr = Context.current.debug? || Context.current.verbose?
           # TODO: Better handling for the case where path is a symlink.
-          #       The -h and -R flags cannot be combined, and behavior is
+          #       The `-h` and `-R` flags cannot be combined and behavior is
           #       dependent on whether the file argument has a trailing
-          #       slash.  This should do the right thing, but is fragile.
+          #       slash. This should do the right thing, but is fragile.
           command.run("/usr/bin/chflags",
+                      print_stderr:,
                       args:         command_args + ["--", "000", path])
           command.run("/bin/chmod",
+                      print_stderr:,
                       args:         command_args + ["--", "u+rwx", path])
           command.run("/bin/chmod",
+                      print_stderr:,
                       args:         command_args + ["-N", path])
           tried_permissions = true
           retry # rmtree
@@ -85,7 +87,7 @@ module Cask
         unless tried_ownership
           # in case of ownership problems
           # TODO: Further examine files to see if ownership is the problem
-          #       before using sudo+chown
+          #       before using `sudo` and `chown`.
           ohai "Using sudo to gain ownership of path '#{path}'"
           command.run("/usr/sbin/chown",
                       args: command_args + ["--", User.current, path],

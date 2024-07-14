@@ -7,8 +7,6 @@ require "linkage_cache_store"
 require "fiddle"
 
 # Check for broken/missing linkage in a formula's keg.
-#
-# @api private
 class LinkageChecker
   attr_reader :undeclared_deps, :keg, :formula, :store
 
@@ -69,6 +67,7 @@ class LinkageChecker
     display_items("Conflicting libraries", @version_conflict_deps, puts_output:)
     return unless strict
 
+    display_items("Indirect dependencies with linkage", @indirect_deps, puts_output:)
     display_items("Undeclared dependencies with linkage", @undeclared_deps, puts_output:)
     display_items("Files with missing rpath", @files_missing_rpaths, puts_output:)
     display_items "@executable_path references in libraries", @executable_path_dylibs, puts_output:
@@ -81,7 +80,7 @@ class LinkageChecker
     issues = [@broken_deps, @broken_dylibs]
     if test
       issues += [@unwanted_system_dylibs, @version_conflict_deps]
-      issues += [@undeclared_deps, @files_missing_rpaths, @executable_path_dylibs] if strict
+      issues += [@indirect_deps, @undeclared_deps, @files_missing_rpaths, @executable_path_dylibs] if strict
     end
     issues.any?(&:present?)
   end
@@ -113,7 +112,7 @@ class LinkageChecker
         # weakly loaded dylibs may not actually exist on disk, so skip them
         # when checking for broken linkage
         keg_files_dylibs[file] =
-          file.dynamically_linked_libraries(except: :LC_LOAD_WEAK_DYLIB)
+          file.dynamically_linked_libraries(except: :DYLIB_USE_WEAK_LINK)
       end
     end
 
@@ -145,7 +144,7 @@ class LinkageChecker
         end
 
         begin
-          owner = Keg.for Pathname.new(dylib)
+          owner = Keg.for(Pathname(dylib))
         rescue NotAKegError
           @system_dylibs << dylib
         rescue Errno::ENOENT
@@ -161,7 +160,7 @@ class LinkageChecker
             @broken_dylibs << dylib
           end
         else
-          tap = Tab.for_keg(owner).tap
+          tap = owner.tab.tap
           f = if tap.nil? || tap.core_tap?
             owner.name
           else

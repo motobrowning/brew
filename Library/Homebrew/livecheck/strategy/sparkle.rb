@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "bundle_version"
@@ -11,8 +11,6 @@ module Homebrew
       #
       # This strategy is not applied automatically and it's necessary to use
       # `strategy :sparkle` in a `livecheck` block to apply it.
-      #
-      # @api private
       class Sparkle
         # A priority of zero causes livecheck to skip the strategy. We do this
         # for {Sparkle} so we can selectively apply it when appropriate.
@@ -22,7 +20,7 @@ module Homebrew
         URL_MATCH_REGEX = %r{^https?://}i
 
         # Common `os` values used in appcasts to refer to macOS.
-        APPCAST_MACOS_STRINGS = ["macos", "osx"].freeze
+        APPCAST_MACOS_STRINGS = T.let(["macos", "osx"].freeze, T::Array[String])
 
         # Whether the strategy can be applied to the provided URL.
         #
@@ -33,7 +31,6 @@ module Homebrew
           URL_MATCH_REGEX.match?(url)
         end
 
-        # @api private
         Item = Struct.new(
           # @api public
           :title,
@@ -57,12 +54,15 @@ module Homebrew
         ) do
           extend Forwardable
 
+          # @!attribute [r] version
           # @api public
           delegate version: :bundle_version
 
+          # @!attribute [r] short_version
           # @api public
           delegate short_version: :bundle_version
 
+          # @!attribute [r] nice_version
           # @api public
           delegate nice_version: :bundle_version
         end

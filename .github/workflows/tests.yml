@@ -16,6 +16,7 @@ env:
   HOMEBREW_NO_ENV_HINTS: 1
   HOMEBREW_BOOTSNAP: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
+  HOMEBREW_VERIFY_ATTESTATIONS: 1
 
 concurrency:
   group: "${{ github.ref }}"
@@ -35,7 +36,7 @@ jobs:
           test-bot: false
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-syntax-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -48,7 +49,7 @@ jobs:
         run: brew install shellcheck shfmt
 
       - name: Cache style cache
-        uses: actions/cache@v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: ~/.cache/Homebrew/style
           key: syntax-style-cache-${{ github.sha }}
@@ -61,13 +62,14 @@ jobs:
       - name: Check RuboCop filepaths
         working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/Library/Homebrew
         run: |
-          public_apis=$(git grep -l "@api public" -- :^sorbet/ :^vendor/ | wc -l | tr -d ' ')
-          rubocop_docs=$(yq '.Style/Documentation.Include' .rubocop.yml | wc -l | tr -d ' ')
-          if [[ public_apis -ne rubocop_docs ]]
-          then
-            echo "All public Homebrew APIs should be included in the Style/Documentation RuboCop."
-            echo "There were ${public_apis} '@api public' lines but ${rubocop_docs} filepaths for the 'Style/Documentation' RuboCop."
-            echo "Add or remove the filepaths from Library/Homebrew/.rubocop.yml as appropriate."
+          public_apis="$(git grep -l "@api public" -- :^sorbet/ :^vendor/ | sort)"
+          rubocop_docs="$(yq '.Style/Documentation.Include[]' .rubocop.yml | sort)"
+
+          if [[ "${public_apis}" != "${rubocop_docs}" ]]; then
+            echo "All public Homebrew APIs should be included in the \`Style/Documentation\` RuboCop."
+            echo "Add/remove the following paths from \`Library/Homebrew/.rubocop.yml\` as appropriate:"
+            echo "${public_apis} ${rubocop_docs}" | tr ' ' '\n' | sort | uniq -u
+
             exit 1
           fi
 
@@ -86,7 +88,7 @@ jobs:
           test-bot: true
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-tap-syntax-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -96,7 +98,7 @@ jobs:
         run: brew install-bundler-gems --groups=style
 
       - name: Cache style cache
-        uses: actions/cache@v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: ~/.cache/Homebrew/style
           key: tap-syntax-style-cache-${{ github.sha }}
@@ -109,8 +111,6 @@ jobs:
         run: |
           brew tap homebrew/aliases
           brew tap homebrew/bundle
-          brew tap homebrew/cask-fonts
-          brew tap homebrew/cask-versions
           brew tap homebrew/command-not-found
           brew tap homebrew/formula-analytics
           brew tap homebrew/portable-ruby
@@ -130,11 +130,9 @@ jobs:
                      homebrew/formula-analytics \
                      homebrew/portable-ruby
 
-      - name: Run brew style on cask taps
+      - name: Run brew style on homebrew/cask
         run: |
-          brew style homebrew/cask \
-                     homebrew/cask-fonts \
-                     homebrew/cask-versions
+          brew style homebrew/cask
 
   formula-audit:
     name: formula audit
@@ -173,19 +171,12 @@ jobs:
           cask: true
           test-bot: false
 
-      - name: Set up Homebrew all cask taps
-        run: |
-          brew tap homebrew/cask-fonts
-          brew tap homebrew/cask-versions
-
       - name: Run brew readall on all casks
-        run: brew readall --os=all --arch=all homebrew/cask homebrew/cask-fonts homebrew/cask-versions
+        run: brew readall --os=all --arch=all homebrew/cask
 
-      - name: Run brew audit --skip-style on casks
+      - name: Run brew audit --skip-style on homebrew/cask
         run: |
           brew audit --skip-style --except=version --tap=homebrew/cask
-          brew audit --skip-style --except=version --tap=homebrew/cask-fonts
-          brew audit --skip-style --except=version --tap=homebrew/cask-versions
 
       - name: Generate formula API
         run: brew generate-formula-api --dry-run
@@ -319,7 +310,7 @@ jobs:
           test-bot: false
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ matrix.runs-on }}-tests-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -334,7 +325,7 @@ jobs:
         run: mkdir tests
 
       - name: Cache parallel tests log
-        uses: actions/cache@v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: tests
           key: ${{ runner.os }}-${{ matrix.test-flags }}-parallel_runtime_rspec-${{ github.sha }}
@@ -390,7 +381,7 @@ jobs:
           HOMEBREW_BUILDPULSE_ACCOUNT_ID: 1503512
           HOMEBREW_BUILDPULSE_REPOSITORY_ID: 53238813
 
-      - uses: codecov/codecov-action@54bcd8715eee62d40e33596ef5e8f0f48dbbccab # v4.1.0
+      - uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673 # v4.5.0
         with:
           working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
           files: Library/Homebrew/test/coverage/coverage.xml
@@ -413,6 +404,9 @@ jobs:
             runs-on: macos-13
           - name: test default formula (macOS 14 arm64)
             runs-on: macos-14
+    env:
+      HOMEBREW_TEST_BOT_ANALYTICS: 1
+      HOMEBREW_ENFORCE_SBOM: 1
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew

@@ -6,8 +6,6 @@ require "cask/artifact/moved"
 module Cask
   module Artifact
     # Artifact corresponding to the `mdimporter` stanza.
-    #
-    # @api private
     class Mdimporter < Moved
       sig { returns(String) }
       def self.english_name
@@ -15,7 +13,7 @@ module Cask
       end
 
       def install_phase(**options)
-        super(**options)
+        super
         reload_spotlight(**options)
       end
 

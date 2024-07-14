@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
 require "cmd/shared_examples/args_parse"
+require "cmd/uses"
+require "fileutils"
 
-RSpec.describe "brew uses" do
+RSpec.describe Homebrew::Cmd::Uses do
+  include FileUtils
+
   it_behaves_like "parseable arguments"
 
   it "prints the Formulae a given Formula is used by", :integration_test do
@@ -32,7 +36,7 @@ RSpec.describe "brew uses" do
     %w[foo installed].each do |formula_name|
       keg_dir = HOMEBREW_CELLAR/formula_name/"1.0"
       keg_dir.mkpath
-      touch keg_dir/Tab::FILENAME
+      touch keg_dir/AbstractTab::FILENAME
     end
 
     expect { brew "uses", "foo", "--eval-all", "--include-optional", "--missing", "--recursive" }

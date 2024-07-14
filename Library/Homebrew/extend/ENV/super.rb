@@ -17,7 +17,6 @@ require "development_tools"
 module Superenv
   include SharedEnvExtension
 
-  # @private
   attr_accessor :keg_only_deps, :deps, :run_time_deps
 
   sig { params(base: Superenv).void }
@@ -27,13 +26,14 @@ module Superenv
     base.run_time_deps = []
   end
 
-  # The location of Homebrew's shims on this OS.
+  # The location of Homebrew's shims.
+  #
+  # @api public
   sig { returns(Pathname) }
   def self.shims_path
     HOMEBREW_SHIMS_PATH/"super"
   end
 
-  # @private
   sig { returns(T.nilable(Pathname)) }
   def self.bin; end
 
@@ -45,7 +45,6 @@ module Superenv
     delete("as_nl")
   end
 
-  # @private
   sig {
     params(
       formula:         T.nilable(Formula),
@@ -63,7 +62,7 @@ module Superenv
 
     self["HOMEBREW_ENV"] = "super"
     self["MAKEFLAGS"] ||= "-j#{determine_make_jobs}"
-    self["RUSTFLAGS"] = Hardware.rustflags_target_cpu
+    self["RUSTFLAGS"] = Hardware.rustflags_target_cpu(effective_arch)
     self["PATH"] = determine_path
     self["PKG_CONFIG_PATH"] = determine_pkg_config_path
     self["PKG_CONFIG_LIBDIR"] = determine_pkg_config_libdir
@@ -109,6 +108,7 @@ module Superenv
     # D - Generate debugging information
     # f - Pass `-no_fixup_chains` to `ld` whenever it
     #     is invoked with `-undefined dynamic_lookup`
+    # o - Pass `-oso_prefix` to `ld` whenever it is invoked
     #
     # These flags will also be present:
     # a - apply fix for apr-1-config path
@@ -228,7 +228,9 @@ module Superenv
       end
     end
 
-    paths << keg_only_deps.map(&:opt_lib)
+    # Don't add `llvm` to library paths; this leads to undesired linkage to LLVM's `libunwind`
+    paths << keg_only_deps.reject { |dep| dep.name.match?(/^llvm(@\d+)?$/) }
+                          .map(&:opt_lib)
     paths << (HOMEBREW_PREFIX/"lib")
 
     paths += homebrew_extra_library_paths
@@ -350,7 +352,6 @@ module Superenv
     append_to_cccfg "D"
   end
 
-  # @private
   sig { void }
   def refurbish_args
     append_to_cccfg "O"

@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
+require "cmd/deps"
 require "cmd/shared_examples/args_parse"
 
-RSpec.describe "brew deps" do
+RSpec.describe Homebrew::Cmd::Deps do
+  include FileUtils
+
   it_behaves_like "parseable arguments"
 
   it "outputs all of a Formula's dependencies and their dependencies on separate lines", :integration_test do
@@ -29,7 +32,7 @@ RSpec.describe "brew deps" do
     # Mock `Formula#any_version_installed?` by creating the tab in a plausible keg directory
     keg_dir = HOMEBREW_CELLAR/"installed"/"1.0"
     keg_dir.mkpath
-    touch keg_dir/Tab::FILENAME
+    touch keg_dir/AbstractTab::FILENAME
 
     expect { brew "deps", "baz", "--include-test", "--missing", "--skip-recommended" }
       .to be_a_success

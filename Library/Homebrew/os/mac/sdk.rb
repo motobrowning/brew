@@ -6,8 +6,6 @@ require "system_command"
 module OS
   module Mac
     # Class representing a macOS SDK.
-    #
-    # @api private
     class SDK
       # 11.x SDKs are explicitly excluded - we want the MacOSX11.sdk symlink instead.
       VERSIONED_SDK_REGEX = /MacOSX(10\.\d+|\d+)\.sdk$/
@@ -30,8 +28,6 @@ module OS
     end
 
     # Base class for SDK locators.
-    #
-    # @api private
     class BaseSDKLocator
       extend T::Helpers
       include SystemCommand::Mixin
@@ -141,8 +137,6 @@ module OS
     private_constant :BaseSDKLocator
 
     # Helper class for locating the Xcode SDK.
-    #
-    # @api private
     class XcodeSDKLocator < BaseSDKLocator
       sig { override.returns(Symbol) }
       def source
@@ -166,8 +160,6 @@ module OS
     end
 
     # Helper class for locating the macOS Command Line Tools SDK.
-    #
-    # @api private
     class CLTSDKLocator < BaseSDKLocator
       sig { override.returns(Symbol) }
       def source
@@ -181,8 +173,8 @@ module OS
       # using that.
       # As of Xcode 10, the Unix-style headers are installed via a
       # separate package, so we can't rely on their being present.
-      # This will only look up SDKs on Xcode 10 or newer, and still
-      # return nil SDKs for Xcode 9 and older.
+      # This will only look up SDKs on Xcode 10 or newer and still
+      # return `nil` SDKs for Xcode 9 and older.
       sig { override.returns(String) }
       def sdk_prefix
         @sdk_prefix ||= if CLT.provides_sdk?

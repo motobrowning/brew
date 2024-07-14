@@ -8,45 +8,52 @@
 # HOMEBREW_MACOS_VERSION_NUMERIC and HOMEBREW_PROCESSOR are set by brew.sh
 # shellcheck disable=SC2154
 source "${HOMEBREW_LIBRARY}/Homebrew/utils/lock.sh"
+source "${HOMEBREW_LIBRARY}/Homebrew/utils/ruby.sh"
 
 VENDOR_DIR="${HOMEBREW_LIBRARY}/Homebrew/vendor"
 
 # Built from https://github.com/Homebrew/homebrew-portable-ruby.
 set_ruby_variables() {
-  if [[ -n "${HOMEBREW_MACOS}" ]]
+  # Handle the case where /usr/local/bin/brew is run under arm64.
+  # It's a x86_64 installation there (we refuse to install arm64 binaries) so
+  # use a x86_64 Portable Ruby.
+  if [[ -n "${HOMEBREW_MACOS}" && "${VENDOR_PHYSICAL_PROCESSOR}" == "arm64" && "${HOMEBREW_PREFIX}" == "/usr/local" ]]
   then
-    if [[ "${VENDOR_PHYSICAL_PROCESSOR}" == "x86_64" ]] ||
-       # Handle the case where /usr/local/bin/brew is run under arm64.
-       # It's a x86_64 installation there (we refuse to install arm64 binaries) so
-       # use a x86_64 Portable Ruby.
-       [[ "${VENDOR_PHYSICAL_PROCESSOR}" == "arm64" && "${HOMEBREW_PREFIX}" == "/usr/local" ]]
+    ruby_PROCESSOR="x86_64"
+    ruby_OS="darwin"
+  else
+    ruby_PROCESSOR="${VENDOR_PHYSICAL_PROCESSOR}"
+    if [[ -n "${HOMEBREW_MACOS}" ]]
     then
-      ruby_FILENAME="portable-ruby-3.1.4.el_capitan.bottle.tar.gz"
-      ruby_SHA="02180ca8b8295422ae84921bcf034b7ee8ce5575488bd5e6a37a192e53cd5d34"
-    elif [[ "${VENDOR_PHYSICAL_PROCESSOR}" == "arm64" ]]
+      ruby_OS="darwin"
+    elif [[ -n "${HOMEBREW_LINUX}" ]]
     then
-      ruby_FILENAME="portable-ruby-3.1.4.arm64_big_sur.bottle.tar.gz"
-      ruby_SHA="d783cbeb6e6ef0d71c0b442317b54554370decd6fac66bf2d4938c07a63f67be"
+      ruby_OS="linux"
     fi
-  elif [[ -n "${HOMEBREW_LINUX}" ]]
+  fi
+
+  ruby_PLATFORMINFO="${HOMEBREW_LIBRARY}/Homebrew/vendor/portable-ruby-${ruby_PROCESSOR}-${ruby_OS}"
+  if [[ -f "${ruby_PLATFORMINFO}" && -r "${ruby_PLATFORMINFO}" ]]
   then
-    case "${VENDOR_PROCESSOR}" in
-      x86_64)
-        ruby_FILENAME="portable-ruby-3.1.4.x86_64_linux.bottle.tar.gz"
-        ruby_SHA="f7be167f7ac4f296b9f4c5874ceeea4aafd9999c3c7f2b0378cae7dd273e2322"
-        ;;
-      *) ;;
-    esac
+    # ruby_TAG and ruby_SHA will be set via the sourced file if it exists
+    # shellcheck disable=SC1090
+    source "${ruby_PLATFORMINFO}"
   fi
 
   # Dynamic variables can't be detected by shellcheck
   # shellcheck disable=SC2034
-  if [[ -n "${ruby_SHA}" && -n "${ruby_FILENAME}" ]]
+  if [[ -n "${ruby_TAG}" && -n "${ruby_SHA}" ]]
   then
+    ruby_FILENAME="portable-ruby-${HOMEBREW_PORTABLE_RUBY_VERSION}.${ruby_TAG}.bottle.tar.gz"
     ruby_URLs=()
     if [[ -n "${HOMEBREW_ARTIFACT_DOMAIN}" ]]
     then
       ruby_URLs+=("${HOMEBREW_ARTIFACT_DOMAIN}/v2/homebrew/portable-ruby/portable-ruby/blobs/sha256:${ruby_SHA}")
+      if [[ -n "${HOMEBREW_ARTIFACT_DOMAIN_NO_FALLBACK}" ]]
+      then
+        ruby_URL="${ruby_URLs[0]}"
+        return
+      fi
     fi
     if [[ -n "${HOMEBREW_BOTTLE_DOMAIN}" ]]
     then
@@ -54,7 +61,7 @@ set_ruby_variables() {
     fi
     ruby_URLs+=(
       "https://ghcr.io/v2/homebrew/portable-ruby/portable-ruby/blobs/sha256:${ruby_SHA}"
-      "https://github.com/Homebrew/homebrew-portable-ruby/releases/download/3.1.4/${ruby_FILENAME}"
+      "https://github.com/Homebrew/homebrew-portable-ruby/releases/download/${HOMEBREW_PORTABLE_RUBY_VERSION}/${ruby_FILENAME}"
     )
     ruby_URL="${ruby_URLs[0]}"
   fi
@@ -181,21 +188,33 @@ EOS
   if [[ -x "/usr/bin/shasum" ]]
   then
     sha="$(/usr/bin/shasum -a 256 "${CACHED_LOCATION}" | cut -d' ' -f1)"
-  elif [[ -x "$(type -P sha256sum)" ]]
+  fi
+
+  if [[ -z "${sha}" && -x "$(type -P sha256sum)" ]]
   then
     sha="$(sha256sum "${CACHED_LOCATION}" | cut -d' ' -f1)"
-  elif [[ -x "$(type -P ruby)" ]]
+  fi
+
+  if [[ -z "${sha}" ]]
   then
-    sha="$(
-      ruby <<EOSCRIPT
+    if [[ -x "$(type -P ruby)" ]]
+    then
+      sha="$(
+        ruby <<EOSCRIPT
 require 'digest/sha2'
 digest = Digest::SHA256.new
 File.open('${CACHED_LOCATION}', 'rb') { |f| digest.update(f.read) }
 puts digest.hexdigest
 EOSCRIPT
-    )"
-  else
-    odie "Cannot verify checksum ('shasum' or 'sha256sum' not found)!"
+      )"
+    else
+      odie "Cannot verify checksum ('shasum', 'sha256sum' and 'ruby' not found)!"
+    fi
+  fi
+
+  if [[ -z "${sha}" ]]
+  then
+    odie "Could not get checksum ('shasum', 'sha256sum' and 'ruby' produced no output)!"
   fi
 
   if [[ "${sha}" != "${VENDOR_SHA}" ]]
@@ -265,6 +284,9 @@ homebrew-vendor-install() {
   local option
   local url_var
   local sha_var
+
+  unset VENDOR_PHYSICAL_PROCESSOR
+  unset VENDOR_PROCESSOR
 
   for option in "$@"
   do
@@ -343,4 +365,11 @@ homebrew-vendor-install() {
   lock "vendor-install-${VENDOR_NAME}"
   fetch
   install
+
+  # Bootsnap needs cleaned up on a new Ruby version.
+  # It's cleaned up by every `brew cleanup` run anyway so not a big deal to do it here, too.
+  if [[ "${VENDOR_NAME}" == "ruby" ]]
+  then
+    rm -rf "${HOMEBREW_CACHE}/bootsnap"
+  fi
 }

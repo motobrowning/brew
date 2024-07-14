@@ -9,8 +9,6 @@ require "extend/on_system"
 # Resource is the fundamental representation of an external resource. The
 # primary formula download, along with other declared resources, are instances
 # of this class.
-#
-# @api private
 class Resource < Downloadable
   include FileUtils
   include OnSystem::MacOSAndLinux
@@ -145,20 +143,25 @@ class Resource < Downloadable
   def fetch(verify_download_integrity: true)
     fetch_patches
 
-    super(verify_download_integrity:)
+    super
   end
 
-  # @!attribute [w] livecheck
   # {Livecheck} can be used to check for newer versions of the software.
   # This method evaluates the DSL specified in the livecheck block of the
   # {Resource} (if it exists) and sets the instance variables of a {Livecheck}
   # object accordingly. This is used by `brew livecheck` to check for newer
   # versions of the software.
   #
-  # <pre>livecheck do
+  # ### Example
+  #
+  # ```ruby
+  # livecheck do
   #   url "https://example.com/foo/releases"
   #   regex /foo-(\d+(?:\.\d+)+)\.tar/
-  # end</pre>
+  # end
+  # ```
+  #
+  # @!attribute [w] livecheck
   def livecheck(&block)
     return @livecheck unless block
 
@@ -167,8 +170,8 @@ class Resource < Downloadable
   end
 
   # Whether a livecheck specification is defined or not.
-  # It returns true when a livecheck block is present in the {Resource} and
-  # false otherwise, and is used by livecheck.
+  # It returns true when a `livecheck` block is present in the {Resource} and
+  # false otherwise and is used by livecheck.
   def livecheckable?
     @livecheckable == true
   end
@@ -234,8 +237,12 @@ class Resource < Downloadable
     # glibc-bootstrap
     if url.start_with?("https://github.com/Homebrew/glibc-bootstrap/releases/download")
       if (artifact_domain = Homebrew::EnvConfig.artifact_domain.presence)
-        extra_urls << url.sub("https://github.com", artifact_domain)
+        artifact_url = url.sub("https://github.com", artifact_domain)
+        return [artifact_url] if Homebrew::EnvConfig.artifact_domain_no_fallback?
+
+        extra_urls << artifact_url
       end
+
       if Homebrew::EnvConfig.bottle_domain != HOMEBREW_BOTTLE_DEFAULT_DOMAIN
         tag, filename = url.split("/").last(2)
         extra_urls << "#{Homebrew::EnvConfig.bottle_domain}/glibc-bootstrap/#{tag}/#{filename}"
@@ -257,6 +264,58 @@ class Resource < Downloadable
   class Go < Resource
     def stage(target, &block)
       super(target/name, &block)
+    end
+  end
+
+  # A resource for a bottle manifest.
+  class BottleManifest < Resource
+    class Error < RuntimeError; end
+
+    attr_reader :bottle
+
+    def initialize(bottle)
+      super("#{bottle.name}_bottle_manifest")
+      @bottle = bottle
+    end
+
+    def verify_download_integrity(_filename)
+      # We don't have a checksum, but we can at least try parsing it.
+      tab
+    rescue Error => e
+      raise DownloadError.new(self, e)
+    end
+
+    def tab
+      json = begin
+        JSON.parse(cached_download.read)
+      rescue JSON::ParserError
+        raise Error, "The downloaded GitHub Packages manifest was corrupted or modified (it is not valid JSON): " \
+                     "\n#{cached_download}"
+      end
+
+      manifests = json["manifests"]
+      raise Error, "Missing 'manifests' section." if manifests.blank?
+
+      manifests_annotations = manifests.filter_map { |m| m["annotations"] }
+      raise Error, "Missing 'annotations' section." if manifests_annotations.blank?
+
+      bottle_digest = bottle.resource.checksum.hexdigest
+      image_ref = GitHubPackages.version_rebuild(bottle.resource.version, bottle.rebuild, bottle.tag.to_s)
+      manifest_annotations = manifests_annotations.find do |m|
+        next if m["sh.brew.bottle.digest"] != bottle_digest
+
+        m["org.opencontainers.image.ref.name"] == image_ref
+      end
+      raise Error, "Couldn't find manifest matching bottle checksum." if manifest_annotations.blank?
+
+      tab = manifest_annotations["sh.brew.tab"]
+      raise Error, "Couldn't find tab from manifest." if tab.blank?
+
+      begin
+        JSON.parse(tab)
+      rescue JSON::ParserError
+        raise Error, "Couldn't parse tab JSON."
+      end
     end
   end
 
@@ -287,13 +346,12 @@ end
 # The context in which a {Resource#stage} occurs. Supports access to both
 # the {Resource} and associated {Mktemp} in a single block argument. The interface
 # is back-compatible with {Resource} itself as used in that context.
-#
-# @api private
 class ResourceStageContext
   extend Forwardable
 
   # The {Resource} that is being staged.
   attr_reader :resource
+
   # The {Mktemp} in which {#resource} is staged.
   attr_reader :staging
 

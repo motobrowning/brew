@@ -9,8 +9,6 @@ module GitHub
   #
   # @param url [String] URL to download from
   # @param artifact_id [String] a value that uniquely identifies the downloaded artifact
-  #
-  # @api private
   sig { params(url: String, artifact_id: String).void }
   def self.download_artifact(url, artifact_id)
     raise API::MissingAuthenticationError if API.credentials == :none
@@ -25,8 +23,6 @@ module GitHub
 end
 
 # Strategy for downloading an artifact from GitHub Actions.
-#
-# @api private
 class GitHubArtifactDownloadStrategy < AbstractFileDownloadStrategy
   def initialize(url, artifact_id, token:)
     super(url, "artifact", artifact_id)
@@ -47,12 +43,11 @@ class GitHubArtifactDownloadStrategy < AbstractFileDownloadStrategy
       rescue ErrorDuringExecution
         raise CurlDownloadStrategyError, url
       end
-      ignore_interrupts do
-        cached_location.dirname.mkpath
-        temporary_path.rename(cached_location)
-        symlink_location.dirname.mkpath
-      end
+      cached_location.dirname.mkpath
+      temporary_path.rename(cached_location)
     end
+
+    symlink_location.dirname.mkpath
     FileUtils.ln_s cached_location.relative_path_from(symlink_location.dirname), symlink_location, force: true
   end
 

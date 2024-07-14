@@ -3,15 +3,32 @@
 ##### to be able to `source` in shell configurations run quickly.
 #####
 
-# Doesn't need a default case because we don't support other OSs
-# shellcheck disable=SC2249
-HOMEBREW_PROCESSOR="$(uname -m)"
-HOMEBREW_PHYSICAL_PROCESSOR="${HOMEBREW_PROCESSOR}"
-HOMEBREW_SYSTEM="$(uname -s)"
-case "${HOMEBREW_SYSTEM}" in
-  Darwin) HOMEBREW_MACOS="1" ;;
-  Linux) HOMEBREW_LINUX="1" ;;
+case "${MACHTYPE}" in
+  arm64-*)
+    HOMEBREW_PROCESSOR="arm64"
+    ;;
+  x86_64-*)
+    HOMEBREW_PROCESSOR="x86_64"
+    ;;
+  *)
+    HOMEBREW_PROCESSOR="$(uname -m)"
+    ;;
 esac
+
+case "${OSTYPE}" in
+  darwin*)
+    HOMEBREW_SYSTEM="Darwin"
+    HOMEBREW_MACOS="1"
+    ;;
+  linux*)
+    HOMEBREW_SYSTEM="Linux"
+    HOMEBREW_LINUX="1"
+    ;;
+  *)
+    HOMEBREW_SYSTEM="$(uname -s)"
+    ;;
+esac
+HOMEBREW_PHYSICAL_PROCESSOR="${HOMEBREW_PROCESSOR}"
 
 HOMEBREW_MACOS_ARM_DEFAULT_PREFIX="/opt/homebrew"
 HOMEBREW_MACOS_ARM_DEFAULT_REPOSITORY="${HOMEBREW_MACOS_ARM_DEFAULT_PREFIX}"
@@ -75,36 +92,18 @@ else
   HOMEBREW_CELLAR="${HOMEBREW_PREFIX}/Cellar"
 fi
 
+HOMEBREW_CASKROOM="${HOMEBREW_PREFIX}/Caskroom"
+
 HOMEBREW_CACHE="${HOMEBREW_CACHE:-${HOMEBREW_DEFAULT_CACHE}}"
 HOMEBREW_LOGS="${HOMEBREW_LOGS:-${HOMEBREW_DEFAULT_LOGS}}"
 HOMEBREW_TEMP="${HOMEBREW_TEMP:-${HOMEBREW_DEFAULT_TEMP}}"
 
-# Don't need to handle a default case.
+# commands that take a single or no arguments.
 # HOMEBREW_LIBRARY set by bin/brew
-# shellcheck disable=SC2249,SC2154
-case "$*" in
-  --cellar)
-    echo "${HOMEBREW_CELLAR}"
-    exit 0
-    ;;
-  --repository | --repo)
-    echo "${HOMEBREW_REPOSITORY}"
-    exit 0
-    ;;
-  --caskroom)
-    echo "${HOMEBREW_PREFIX}/Caskroom"
-    exit 0
-    ;;
-  --cache)
-    echo "${HOMEBREW_CACHE}"
-    exit 0
-    ;;
-  shellenv)
-    source "${HOMEBREW_LIBRARY}/Homebrew/cmd/shellenv.sh"
-    shift
-    homebrew-shellenv "$1"
-    exit 0
-    ;;
+# shellcheck disable=SC2154
+# doesn't need a default case as other arguments handled elsewhere.
+# shellcheck disable=SC2249
+case "$1" in
   formulae)
     source "${HOMEBREW_LIBRARY}/Homebrew/cmd/formulae.sh"
     homebrew-formulae
@@ -115,108 +114,70 @@ case "$*" in
     homebrew-casks
     exit 0
     ;;
+  shellenv)
+    source "${HOMEBREW_LIBRARY}/Homebrew/cmd/shellenv.sh"
+    shift
+    homebrew-shellenv "$1"
+    exit 0
+    ;;
+  setup-ruby)
+    source "${HOMEBREW_LIBRARY}/Homebrew/cmd/setup-ruby.sh"
+    shift
+    homebrew-setup-ruby "$1"
+    exit 0
+    ;;
+esac
+
+source "${HOMEBREW_LIBRARY}/Homebrew/help.sh"
+
+# functions that take multiple arguments or handle multiple commands.
+# doesn't need a default case as other arguments handled elsewhere.
+# shellcheck disable=SC2249
+case "$@" in
+  --cellar)
+    echo "${HOMEBREW_CELLAR}"
+    exit 0
+    ;;
+  --repository | --repo)
+    echo "${HOMEBREW_REPOSITORY}"
+    exit 0
+    ;;
+  --caskroom)
+    echo "${HOMEBREW_CASKROOM}"
+    exit 0
+    ;;
+  --cache)
+    echo "${HOMEBREW_CACHE}"
+    exit 0
+    ;;
   # falls back to cmd/--prefix.rb and cmd/--cellar.rb on a non-zero return
   --prefix* | --cellar*)
     source "${HOMEBREW_LIBRARY}/Homebrew/formula_path.sh"
     homebrew-formula-path "$@" && exit 0
+    ;;
+  # falls back to cmd/command.rb on a non-zero return
+  command*)
+    source "${HOMEBREW_LIBRARY}/Homebrew/command_path.sh"
+    homebrew-command-path "$@" && exit 0
+    ;;
+  # falls back to cmd/list.rb on a non-zero return
+  list*)
+    source "${HOMEBREW_LIBRARY}/Homebrew/list.sh"
+    homebrew-list "$@" && exit 0
+    ;;
+  # falls back to cmd/help.rb on a non-zero return
+  help | --help | -h | --usage | -? | "")
+    homebrew-help "$@" && exit 0
     ;;
 esac
 
 #####
 ##### Next, define all helper functions.
 #####
-
-# These variables are set from the user environment.
-# shellcheck disable=SC2154
-ohai() {
-  # Check whether stdout is a tty.
-  if [[ -n "${HOMEBREW_COLOR}" || (-t 1 && -z "${HOMEBREW_NO_COLOR}") ]]
-  then
-    echo -e "\\033[34m==>\\033[0m \\033[1m$*\\033[0m" # blue arrow and bold text
-  else
-    echo "==> $*"
-  fi
-}
-
-opoo() {
-  # Check whether stderr is a tty.
-  if [[ -n "${HOMEBREW_COLOR}" || (-t 2 && -z "${HOMEBREW_NO_COLOR}") ]]
-  then
-    echo -ne "\\033[4;33mWarning\\033[0m: " >&2 # highlight Warning with underline and yellow color
-  else
-    echo -n "Warning: " >&2
-  fi
-  if [[ $# -eq 0 ]]
-  then
-    cat >&2
-  else
-    echo "$*" >&2
-  fi
-}
-
-bold() {
-  # Check whether stderr is a tty.
-  if [[ -n "${HOMEBREW_COLOR}" || (-t 2 && -z "${HOMEBREW_NO_COLOR}") ]]
-  then
-    echo -e "\\033[1m""$*""\\033[0m"
-  else
-    echo "$*"
-  fi
-}
-
-onoe() {
-  # Check whether stderr is a tty.
-  if [[ -n "${HOMEBREW_COLOR}" || (-t 2 && -z "${HOMEBREW_NO_COLOR}") ]]
-  then
-    echo -ne "\\033[4;31mError\\033[0m: " >&2 # highlight Error with underline and red color
-  else
-    echo -n "Error: " >&2
-  fi
-  if [[ $# -eq 0 ]]
-  then
-    cat >&2
-  else
-    echo "$*" >&2
-  fi
-}
-
-odie() {
-  onoe "$@"
-  exit 1
-}
-
-safe_cd() {
-  cd "$@" >/dev/null || odie "Failed to cd to $*!"
-}
-
-brew() {
-  # This variable is set by bin/brew
-  # shellcheck disable=SC2154
-  "${HOMEBREW_BREW_FILE}" "$@"
-}
-
-curl() {
-  "${HOMEBREW_LIBRARY}/Homebrew/shims/shared/curl" "$@"
-}
-
-git() {
-  "${HOMEBREW_LIBRARY}/Homebrew/shims/shared/git" "$@"
-}
-
-# Search given executable in PATH (remove dependency for `which` command)
-which() {
-  # Alias to Bash built-in command `type -P`
-  type -P "$@"
-}
-
-numeric() {
-  # Condense the exploded argument into a single return value.
-  # shellcheck disable=SC2086,SC2183
-  printf "%01d%02d%02d%03d" ${1//[.rc]/ } 2>/dev/null
-}
+source "${HOMEBREW_LIBRARY}/Homebrew/utils/helpers.sh"
 
 check-run-command-as-root() {
-  [[ "$(id -u)" == 0 ]] || return
+  [[ "${EUID}" == 0 || "${UID}" == 0 ]] || return
 
   # Allow Azure Pipelines/GitHub Actions/Docker/Concourse/Kubernetes to do everything as root (as it's normal there)
   [[ -f /.dockerenv ]] && return
@@ -249,7 +210,7 @@ EOS
   fi
 }
 
-# NOTE: the members of the array in the second arg must not have spaces!
+# NOTE: The members of the array in the second arg must not have spaces!
 check-array-membership() {
   local item=$1
   shift
@@ -259,22 +220,6 @@ check-array-membership() {
     return 0
   else
     return 1
-  fi
-}
-
-# Let user know we're still updating Homebrew if brew update --auto-update
-# exceeds 3 seconds.
-auto-update-timer() {
-  sleep 3
-  # Outputting a command but don't want to run it, hence single quotes.
-  # shellcheck disable=SC2016
-  echo 'Running `brew update --auto-update`...' >&2
-  if [[ -z "${HOMEBREW_NO_ENV_HINTS}" && -z "${HOMEBREW_AUTO_UPDATE_SECS}" ]]
-  then
-    # shellcheck disable=SC2016
-    echo 'Adjust how often this is run with HOMEBREW_AUTO_UPDATE_SECS or disable with' >&2
-    # shellcheck disable=SC2016
-    echo 'HOMEBREW_NO_AUTO_UPDATE. Hide these hints with HOMEBREW_NO_ENV_HINTS (see `man brew`).' >&2
   fi
 }
 
@@ -294,9 +239,30 @@ auto-update() {
   then
     export HOMEBREW_AUTO_UPDATING="1"
 
+    # Look for commands that may be referring to a formula/cask in a specific
+    # 3rd-party tap so they can be auto-updated more often (as they do not get
+    # their data from the API).
+    AUTO_UPDATE_TAP_COMMANDS=(
+      install
+      outdated
+      upgrade
+    )
+    if check-array-membership "${HOMEBREW_COMMAND}" "${AUTO_UPDATE_TAP_COMMANDS[@]}"
+    then
+      for arg in "$@"
+      do
+        if [[ "${arg}" == */*/* ]] && [[ "${arg}" != Homebrew/* ]] && [[ "${arg}" != homebrew/* ]]
+        then
+
+          HOMEBREW_AUTO_UPDATE_TAP="1"
+          break
+        fi
+      done
+    fi
+
     if [[ -z "${HOMEBREW_AUTO_UPDATE_SECS}" ]]
     then
-      if [[ -n "${HOMEBREW_NO_INSTALL_FROM_API}" ]]
+      if [[ -n "${HOMEBREW_NO_INSTALL_FROM_API}" || -n "${HOMEBREW_AUTO_UPDATE_TAP}" ]]
       then
         # 5 minutes
         HOMEBREW_AUTO_UPDATE_SECS="300"
@@ -339,24 +305,10 @@ auto-update() {
       return
     fi
 
-    if [[ -z "${HOMEBREW_VERBOSE}" ]]
-    then
-      auto-update-timer &
-      timer_pid=$!
-    fi
-
     brew update --auto-update
 
-    if [[ -n "${timer_pid}" ]]
-    then
-      kill "${timer_pid}" 2>/dev/null
-      wait "${timer_pid}" 2>/dev/null
-    fi
-
     unset HOMEBREW_AUTO_UPDATING
-
-    # Restore user path as it'll be refiltered by HOMEBREW_BREW_FILE (bin/brew)
-    export PATH=${HOMEBREW_PATH}
+    unset HOMEBREW_AUTO_UPDATE_TAP
 
     # exec a new process to set any new environment variables.
     exec "${HOMEBREW_BREW_FILE}" "$@"
@@ -419,11 +371,11 @@ fi
 
 # Many Pathname operations use getwd when they shouldn't, and then throw
 # odd exceptions. Reduce our support burden by showing a user-friendly error.
-if ! [[ -d "$(pwd)" ]]
+if ! [[ -d "${PWD}" ]]
 then
   odie "The current working directory must exist to run brew."
 fi
-if ! [[ -r "$(pwd)" ]]
+if ! [[ -r "${PWD}" ]]
 then
   odie "The current working directory must be readable to ${USER} to run brew."
 fi
@@ -485,7 +437,27 @@ setup_git() {
 setup_curl
 setup_git
 
-HOMEBREW_VERSION="$("${HOMEBREW_GIT}" -C "${HOMEBREW_REPOSITORY}" describe --tags --dirty --abbrev=7 2>/dev/null)"
+GIT_DESCRIBE_CACHE="${HOMEBREW_REPOSITORY}/.git/describe-cache"
+GIT_REVISION=$("${HOMEBREW_GIT}" -C "${HOMEBREW_REPOSITORY}" rev-parse HEAD 2>/dev/null)
+if [[ -n "${GIT_REVISION}" ]]
+then
+  GIT_DESCRIBE_CACHE_FILE="${GIT_DESCRIBE_CACHE}/${GIT_REVISION}"
+  if [[ -f "${GIT_DESCRIBE_CACHE_FILE}" ]]
+  then
+    HOMEBREW_VERSION="$(cat "${GIT_DESCRIBE_CACHE_FILE}")"
+  else
+    rm -rf "${GIT_DESCRIBE_CACHE}"
+    HOMEBREW_VERSION="$("${HOMEBREW_GIT}" -C "${HOMEBREW_REPOSITORY}" describe --tags --dirty --abbrev=7 2>/dev/null)"
+    mkdir -p "${GIT_DESCRIBE_CACHE}"
+    echo "${HOMEBREW_VERSION}" >"${GIT_DESCRIBE_CACHE_FILE}"
+  fi
+  unset GIT_DESCRIBE_CACHE_FILE
+else
+  rm -rf "${GIT_DESCRIBE_CACHE}"
+fi
+unset GIT_REVISION
+unset GIT_DESCRIBE_CACHE
+
 HOMEBREW_USER_AGENT_VERSION="${HOMEBREW_VERSION}"
 if [[ -z "${HOMEBREW_VERSION}" ]]
 then
@@ -498,7 +470,17 @@ HOMEBREW_CORE_REPOSITORY="${HOMEBREW_LIBRARY}/Taps/homebrew/homebrew-core"
 # shellcheck disable=SC2034
 HOMEBREW_CASK_REPOSITORY="${HOMEBREW_LIBRARY}/Taps/homebrew/homebrew-cask"
 
-case "$*" in
+# Shift the -v to the end of the parameter list
+if [[ "$1" == "-v" ]]
+then
+  shift
+  set -- "$@" -v
+fi
+
+# commands that take a single or no arguments.
+# doesn't need a default case as other arguments handled elsewhere.
+# shellcheck disable=SC2249
+case "$1" in
   --version | -v)
     source "${HOMEBREW_LIBRARY}/Homebrew/cmd/--version.sh"
     homebrew-version
@@ -708,6 +690,7 @@ HOMEBREW_USER_AGENT_CURL="${HOMEBREW_USER_AGENT} ${curl_name_and_version// //}"
 HOMEBREW_CURL_SPEED_LIMIT=100
 HOMEBREW_CURL_SPEED_TIME=5
 
+export HOMEBREW_HELP_MESSAGE
 export HOMEBREW_VERSION
 export HOMEBREW_MACOS_ARM_DEFAULT_PREFIX
 export HOMEBREW_LINUX_DEFAULT_PREFIX
@@ -724,6 +707,7 @@ export HOMEBREW_LOGS
 export HOMEBREW_DEFAULT_TEMP
 export HOMEBREW_TEMP
 export HOMEBREW_CELLAR
+export HOMEBREW_CASKROOM
 export HOMEBREW_SYSTEM
 export HOMEBREW_SYSTEM_CA_CERTIFICATES_TOO_OLD
 export HOMEBREW_CURL
@@ -769,6 +753,7 @@ EOS
   # a popup window asking the user to install the CLT
   if [[ -n "${XCODE_SELECT_PATH}" ]]
   then
+    # TODO: this is fairly slow, figure out if there's a faster way.
     XCRUN_OUTPUT="$(/usr/bin/xcrun clang 2>&1)"
     XCRUN_STATUS="$?"
 
@@ -780,13 +765,6 @@ You have not agreed to the Xcode license. Please resolve this by running:
 EOS
     fi
   fi
-fi
-
-if [[ "$1" == "-v" ]]
-then
-  # Shift the -v to the end of the parameter list
-  shift
-  set -- "$@" -v
 fi
 
 for arg in "$@"
@@ -805,6 +783,8 @@ HOMEBREW_COMMAND="$1"
 shift
 # If you are going to change anything in below case statement,
 # be sure to also update HOMEBREW_INTERNAL_COMMAND_ALIASES hash in commands.rb
+# doesn't need a default case as other arguments handled elsewhere.
+# shellcheck disable=SC2249
 case "${HOMEBREW_COMMAND}" in
   ls) HOMEBREW_COMMAND="list" ;;
   homepage) HOMEBREW_COMMAND="home" ;;
@@ -866,7 +846,8 @@ if check-array-membership "${HOMEBREW_COMMAND}" "${AUTO_UPDATE_CORE_TAP_COMMANDS
 then
   export HOMEBREW_AUTO_UPDATE_COMMAND="1"
   export HOMEBREW_AUTO_UPDATE_CORE_TAP="1"
-else
+elif [[ -z "${HOMEBREW_AUTO_UPDATING}" ]]
+then
   unset HOMEBREW_AUTO_UPDATE_CORE_TAP
 fi
 
@@ -880,12 +861,10 @@ if check-array-membership "${HOMEBREW_COMMAND}" "${AUTO_UPDATE_CASK_TAP_COMMANDS
 then
   export HOMEBREW_AUTO_UPDATE_COMMAND="1"
   export HOMEBREW_AUTO_UPDATE_CASK_TAP="1"
-else
-  unset HOMEBREW_AUTO_UPDATE_CORE_TAP
+elif [[ -z "${HOMEBREW_AUTO_UPDATING}" ]]
+then
+  unset HOMEBREW_AUTO_UPDATE_CASK_TAP
 fi
-
-# Disable Ruby options we don't need.
-export HOMEBREW_RUBY_DISABLE_OPTIONS="--disable=gems,rubyopt"
 
 if [[ -z "${HOMEBREW_RUBY_WARNINGS}" ]]
 then

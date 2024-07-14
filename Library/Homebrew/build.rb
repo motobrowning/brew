@@ -15,10 +15,9 @@ require "extend/ENV"
 require "fcntl"
 require "socket"
 require "cmd/install"
+require "json/add/exception"
 
 # A formula build.
-#
-# @api private
 class Build
   attr_reader :formula, :deps, :reqs, :args
 
@@ -139,12 +138,14 @@ class Build
         with_env(
           # For head builds, HOMEBREW_FORMULA_PREFIX should include the commit,
           # which is not known until after the formula has been staged.
-          HOMEBREW_FORMULA_PREFIX: formula.prefix,
+          HOMEBREW_FORMULA_PREFIX:    formula.prefix,
+          # https://reproducible-builds.org/docs/build-path/
+          HOMEBREW_FORMULA_BUILDPATH: formula.buildpath,
           # https://reproducible-builds.org/docs/source-date-epoch/
-          SOURCE_DATE_EPOCH:       formula.source_modified_time.to_i.to_s,
+          SOURCE_DATE_EPOCH:          formula.source_modified_time.to_i.to_s,
           # Avoid make getting confused about timestamps.
           # https://github.com/Homebrew/homebrew-core/pull/87470
-          TZ:                      "UTC0",
+          TZ:                         "UTC0",
         ) do
           formula.patch
 
@@ -215,7 +216,7 @@ class Build
 end
 
 begin
-  args = Homebrew.install_args.parse
+  args = Homebrew::Cmd::InstallCmd.new.args
   Context.current = args.context
 
   error_pipe = UNIXSocket.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)

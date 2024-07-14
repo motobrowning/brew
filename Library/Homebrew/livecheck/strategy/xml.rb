@@ -1,11 +1,11 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Homebrew
   module Livecheck
     module Strategy
       # The {Xml} strategy fetches content at a URL, parses it as XML using
-      # `REXML`, and provides the `REXML::Document` to a `strategy` block.
+      # `REXML` and provides the `REXML::Document` to a `strategy` block.
       # If a regex is present in the `livecheck` block, it should be passed
       # as the second argument to the `strategy` block.
       #

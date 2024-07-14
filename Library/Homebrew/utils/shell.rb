@@ -60,7 +60,7 @@ module Utils
         rc_profile = "#{Dir.home}/.rcrc"
         return rc_profile if File.exist? rc_profile
       when :zsh
-        return "#{ENV["ZDOTDIR"]}/.zshrc" if ENV["ZDOTDIR"].present?
+        return "#{ENV["HOMEBREW_ZDOTDIR"]}/.zshrc" if ENV["HOMEBREW_ZDOTDIR"].present?
       end
 
       SHELL_PROFILE_MAP.fetch(preferred, "~/.profile")
@@ -106,30 +106,30 @@ module Utils
       zsh:  "~/.zshrc",
     }.freeze
 
-    UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~\n])}
+    UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~+\n])}
 
     sig { params(str: String).returns(String) }
     def csh_quote(str)
-      # ruby's implementation of shell_escape
+      # Ruby's implementation of `shell_escape`.
       str = str.to_s
       return "''" if str.empty?
 
       str = str.dup
-      # anything that isn't a known safe character is padded
+      # Anything that isn't a known safe character is padded.
       str.gsub!(UNSAFE_SHELL_CHAR, "\\\\" + "\\1") # rubocop:disable Style/StringConcatenation
-      # newlines have to be specially quoted in csh
+      # Newlines have to be specially quoted in `csh`.
       str.gsub!("\n", "'\\\n'")
       str
     end
 
     sig { params(str: String).returns(String) }
     def sh_quote(str)
-      # ruby's implementation of shell_escape
+      # Ruby's implementation of `shell_escape`.
       str = str.to_s
       return "''" if str.empty?
 
       str = str.dup
-      # anything that isn't a known safe character is padded
+      # Anything that isn't a known safe character is padded.
       str.gsub!(UNSAFE_SHELL_CHAR, "\\\\" + "\\1") # rubocop:disable Style/StringConcatenation
       str.gsub!("\n", "'\n'")
       str

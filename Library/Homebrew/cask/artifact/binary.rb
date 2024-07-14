@@ -6,11 +6,9 @@ require "cask/artifact/symlinked"
 module Cask
   module Artifact
     # Artifact corresponding to the `binary` stanza.
-    #
-    # @api private
     class Binary < Symlinked
       def link(command: nil, **options)
-        super(command:, **options)
+        super
         return if source.executable?
 
         if source.writable?

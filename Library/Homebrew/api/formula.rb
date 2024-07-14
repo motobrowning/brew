@@ -7,10 +7,11 @@ require "api/download"
 module Homebrew
   module API
     # Helper functions for using the formula JSON API.
-    #
-    # @api private
     module Formula
       extend Cachable
+
+      DEFAULT_API_FILENAME = "formula.jws.json"
+      INTERNAL_V3_API_FILENAME = "internal/v3/homebrew-core.jws.json"
 
       private_class_method :cache
 
@@ -37,13 +38,21 @@ module Homebrew
                           flags:      formula.class.build_flags)
       end
 
+      def self.cached_json_file_path
+        if Homebrew::API.internal_json_v3?
+          HOMEBREW_CACHE_API/INTERNAL_V3_API_FILENAME
+        else
+          HOMEBREW_CACHE_API/DEFAULT_API_FILENAME
+        end
+      end
+
       sig { returns(T::Boolean) }
       def self.download_and_cache_data!
         if Homebrew::API.internal_json_v3?
-          json_formulae, updated = Homebrew::API.fetch_json_api_file "internal/v3/homebrew-core.jws.json"
+          json_formulae, updated = Homebrew::API.fetch_json_api_file INTERNAL_V3_API_FILENAME
           overwrite_cache! T.cast(json_formulae, T::Hash[String, T.untyped])
         else
-          json_formulae, updated = Homebrew::API.fetch_json_api_file "formula.jws.json"
+          json_formulae, updated = Homebrew::API.fetch_json_api_file DEFAULT_API_FILENAME
 
           cache["aliases"] = {}
           cache["renames"] = {}

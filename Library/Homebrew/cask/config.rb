@@ -10,7 +10,7 @@ require "extend/hash/keys"
 module Cask
   # Configuration for installing casks.
   #
-  # @api private
+  # @api internal
   class Config
     DEFAULT_DIRS = {
       appdir:               "/Applications",
@@ -38,6 +38,7 @@ module Cask
 
     sig { params(args: Homebrew::CLI::Args).returns(T.attached_class) }
     def self.from_args(args)
+      args = T.unsafe(args)
       new(explicit: {
         appdir:               args.appdir,
         keyboard_layoutdir:   args.keyboard_layoutdir,
@@ -88,6 +89,9 @@ module Cask
       end
     end
 
+    # Get the explicit configuration.
+    #
+    # @api internal
     sig { returns(T::Hash[Symbol, T.any(String, Pathname, T::Array[String])]) }
     attr_accessor :explicit
 
@@ -151,9 +155,9 @@ module Cask
     sig { returns(T::Array[String]) }
     def languages
       [
-        *T.cast(explicit.fetch(:languages, []), T::Array[String]),
-        *T.cast(env.fetch(:languages, []), T::Array[String]),
-        *T.cast(default.fetch(:languages, []), T::Array[String]),
+        *explicit.fetch(:languages, []),
+        *env.fetch(:languages, []),
+        *default.fetch(:languages, []),
       ].uniq.select do |lang|
         # Ensure all languages are valid.
         Locale.parse(lang)
@@ -184,6 +188,11 @@ module Cask
       self.class.new(explicit: other.explicit.merge(explicit))
     end
 
+    # Get explicit configuration as a string.
+    #
+    # @api internal
+    #
+    # TODO: This is only used by `homebrew/bundle`, so move it there.
     sig { returns(String) }
     def explicit_s
       explicit.map do |key, value|

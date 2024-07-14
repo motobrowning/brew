@@ -4,8 +4,6 @@
 require "json"
 
 module Cask
-  #
-  # @api private
   class Info
     def self.get_info(cask)
       require "cask/installer"
@@ -14,7 +12,7 @@ module Cask
       output << "#{Formatter.url(cask.homepage)}\n" if cask.homepage
       deprecate_disable = DeprecateDisable.message(cask)
       output << "#{deprecate_disable.capitalize}\n" if deprecate_disable
-      output << installation_info(cask)
+      output << "#{installation_info(cask)}\n"
       repo = repo_info(cask)
       output << "#{repo}\n" if repo
       output << name_info(cask)
@@ -29,6 +27,8 @@ module Cask
 
     def self.info(cask)
       puts get_info(cask)
+
+      require "utils/analytics"
       ::Utils::Analytics.cask_output(cask, args: Homebrew::CLI::Args.new)
     end
 
@@ -39,7 +39,7 @@ module Cask
     end
 
     def self.installation_info(cask)
-      return "Not installed\n" unless cask.installed?
+      return "Not installed" unless cask.installed?
 
       versioned_staged_path = cask.caskroom_path.join(cask.installed_version)
       path_details = if versioned_staged_path.exist?
@@ -48,7 +48,12 @@ module Cask
         Formatter.error("does not exist")
       end
 
-      "#{versioned_staged_path} (#{path_details})\n"
+      tab = Tab.for_cask(cask)
+
+      info = ["Installed"]
+      info << "#{versioned_staged_path} (#{path_details})"
+      info << "  #{tab}" if tab.tabfile&.exist?
+      info.join("\n")
     end
 
     def self.name_info(cask)

@@ -2,14 +2,24 @@
 # frozen_string_literal: true
 
 module Stdenv
-  # @private
-
   undef homebrew_extra_pkg_config_paths
 
+  sig { returns(T::Array[Pathname]) }
   def homebrew_extra_pkg_config_paths
     [Pathname("#{HOMEBREW_LIBRARY}/Homebrew/os/mac/pkgconfig/#{MacOS.version}")]
   end
+  private :homebrew_extra_pkg_config_paths
 
+  sig {
+    params(
+      formula:         T.nilable(Formula),
+      cc:              T.nilable(String),
+      build_bottle:    T.nilable(T::Boolean),
+      bottle_arch:     T.nilable(String),
+      testing_formula: T::Boolean,
+      debug_symbols:   T.nilable(T::Boolean),
+    ).void
+  }
   def setup_build_environment(formula: nil, cc: nil, build_bottle: false, bottle_arch: nil, testing_formula: false,
                               debug_symbols: false)
     generic_setup_build_environment(formula:, cc:, build_bottle:, bottle_arch:,
@@ -17,12 +27,11 @@ module Stdenv
 
     append "LDFLAGS", "-Wl,-headerpad_max_install_names"
 
-    # sed is strict, and errors out when it encounters files with
-    # mixed character sets
+    # `sed` is strict and errors out when it encounters files with mixed character sets.
     delete("LC_ALL")
     self["LC_CTYPE"] = "C"
 
-    # Add lib and include etc. from the current macosxsdk to compiler flags:
+    # Add `lib` and `include` etc. from the current `macosxsdk` to compiler flags:
     macosxsdk(formula: @formula, testing_formula:)
 
     return unless MacOS::Xcode.without_clt?
@@ -32,8 +41,8 @@ module Stdenv
   end
 
   def remove_macosxsdk(version = nil)
-    # Clear all lib and include dirs from CFLAGS, CPPFLAGS, LDFLAGS that were
-    # previously added by macosxsdk
+    # Clear all `lib` and `include` dirs from `CFLAGS`, `CPPFLAGS`, `LDFLAGS` that were
+    # previously added by `macosxsdk`.
     remove_from_cflags(/ ?-mmacosx-version-min=\d+\.\d+/)
     delete("CPATH")
     remove "LDFLAGS", "-L#{HOMEBREW_PREFIX}/lib"
@@ -48,14 +57,14 @@ module Stdenv
     if HOMEBREW_PREFIX.to_s == "/usr/local"
       delete("CMAKE_PREFIX_PATH")
     else
-      # It was set in setup_build_environment, so we have to restore it here.
+      # It was set in `setup_build_environment`, so we have to restore it here.
       self["CMAKE_PREFIX_PATH"] = HOMEBREW_PREFIX.to_s
     end
     remove "CMAKE_FRAMEWORK_PATH", "#{sdk}/System/Library/Frameworks"
   end
 
   def macosxsdk(version = nil, formula: nil, testing_formula: false)
-    # Sets all needed lib and include dirs to CFLAGS, CPPFLAGS, LDFLAGS.
+    # Sets all needed `lib` and `include` dirs to `CFLAGS`, `CPPFLAGS`, `LDFLAGS`.
     remove_macosxsdk
     min_version = version || MacOS.version
     append_to_cflags("-mmacosx-version-min=#{min_version}")

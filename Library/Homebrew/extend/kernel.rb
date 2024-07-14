@@ -3,6 +3,7 @@
 
 # Contains shorthand Homebrew utility methods like `ohai`, `opoo`, `odisabled`.
 # TODO: move these out of `Kernel`.
+
 module Kernel
   def require?(path)
     return false if path.nil?
@@ -58,31 +59,50 @@ module Kernel
     puts oh1_title(title, truncate:)
   end
 
-  # Print a message prefixed with "Warning" (do this rarely).
+  # Print a warning message.
+  #
+  # @api public
+  sig { params(message: T.any(String, Exception)).void }
   def opoo(message)
     Tty.with($stderr) do |stderr|
       stderr.puts Formatter.warning(message, label: "Warning")
+      GitHub::Actions.puts_annotation_if_env_set(:warning, message.to_s)
     end
   end
 
-  # Print a message prefixed with "Error".
+  # Print an error message.
+  #
+  # @api public
+  sig { params(message: T.any(String, Exception)).void }
   def onoe(message)
+    require "utils/formatter"
+    require "utils/github/actions"
+
     Tty.with($stderr) do |stderr|
       stderr.puts Formatter.error(message, label: "Error")
+      GitHub::Actions.puts_annotation_if_env_set(:error, message.to_s)
     end
   end
 
+  # Print an error message and fail at the end of the program.
+  #
+  # @api public
+  sig { params(error: T.any(String, Exception)).void }
   def ofail(error)
     onoe error
     Homebrew.failed = true
   end
 
+  # Print an error message and fail immediately.
+  #
+  # @api public
   sig { params(error: T.any(String, Exception)).returns(T.noreturn) }
   def odie(error)
     onoe error
     exit 1
   end
 
+  # Output a deprecation warning/error message.
   def odeprecated(method, replacement = nil,
                   disable:                false,
                   disable_on:             nil,
@@ -134,12 +154,17 @@ module Kernel
     backtrace.each do |line|
       next unless (match = line.match(HOMEBREW_TAP_PATH_REGEX))
 
+      require "tap"
+
       tap = Tap.fetch(match[:user], match[:repo])
-      tap_message = +"\nPlease report this issue to the #{tap} tap (not Homebrew/brew or Homebrew/homebrew-core)"
+      tap_message = +"\nPlease report this issue to the #{tap.full_name} tap"
+      tap_message += " (not Homebrew/brew or Homebrew/homebrew-core)" unless tap.official?
       tap_message += ", or even better, submit a PR to fix it" if replacement
       tap_message << ":\n  #{line.sub(/^(.*:\d+):.*$/, '\1')}\n\n"
       break
     end
+    file, line, = backtrace.first.split(":")
+    line = line.to_i if line.present?
 
     message = +"Calling #{method} is #{verb}! #{replacement_message}"
     message << tap_message if tap_message
@@ -147,10 +172,12 @@ module Kernel
 
     disable = true if disable_for_developers && Homebrew::EnvConfig.developer?
     if disable || Homebrew.raise_deprecation_exceptions?
+      GitHub::Actions.puts_annotation_if_env_set(:error, message, file:, line:)
       exception = MethodDeprecatedError.new(message)
       exception.set_backtrace(backtrace)
       raise exception
     elsif !Homebrew.auditing?
+      GitHub::Actions.puts_annotation_if_env_set(:warning, message, file:, line:)
       opoo message
     end
   end
@@ -242,7 +269,9 @@ module Kernel
     raise ErrorDuringExecution.new([cmd, *args], status: $CHILD_STATUS)
   end
 
-  # Prints no output.
+  # Run a system command without any output.
+  #
+  # @api internal
   def quiet_system(cmd, *args)
     Homebrew._system(cmd, *args) do
       # Redirect output streams to `/dev/null` instead of closing as some programs
@@ -252,6 +281,9 @@ module Kernel
     end
   end
 
+  # Find a command.
+  #
+  # @api public
   def which(cmd, path = ENV.fetch("PATH"))
     PATH.new(path).each do |p|
       begin
@@ -317,30 +349,26 @@ module Kernel
     end
   end
 
-  def ignore_interrupts(_opt = nil)
-    # rubocop:disable Style/GlobalVars
-    $ignore_interrupts_nesting_level = 0 unless defined?($ignore_interrupts_nesting_level)
-    $ignore_interrupts_nesting_level += 1
+  IGNORE_INTERRUPTS_MUTEX = Thread::Mutex.new.freeze
 
-    $ignore_interrupts_interrupted = false unless defined?($ignore_interrupts_interrupted)
-    old_sigint_handler = trap(:INT) do
-      $ignore_interrupts_interrupted = true
-      $stderr.print "\n"
-      $stderr.puts "One sec, cleaning up..."
-    end
+  def ignore_interrupts
+    IGNORE_INTERRUPTS_MUTEX.synchronize do
+      interrupted = T.let(false, T::Boolean)
+      old_sigint_handler = trap(:INT) do
+        interrupted = true
 
-    begin
-      yield
-    ensure
-      trap(:INT, old_sigint_handler)
+        $stderr.print "\n"
+        $stderr.puts "One sec, cleaning up..."
+      end
 
-      $ignore_interrupts_nesting_level -= 1
-      if $ignore_interrupts_nesting_level == 0 && $ignore_interrupts_interrupted
-        $ignore_interrupts_interrupted = false
-        raise Interrupt
+      begin
+        yield
+      ensure
+        trap(:INT, old_sigint_handler)
+
+        raise Interrupt if interrupted
       end
     end
-    # rubocop:enable Style/GlobalVars
   end
 
   def redirect_stdout(file)
@@ -399,6 +427,9 @@ module Kernel
     executable = [
       which(name),
       which(name, ORIGINAL_PATHS),
+      # We prefer the opt_bin path to a formula's executable over the prefix
+      # path where available, since the former is stable during upgrades.
+      HOMEBREW_PREFIX/"opt/#{formula_name}/bin/#{name}",
       HOMEBREW_PREFIX/"bin/#{name}",
     ].compact.first
     return executable if executable.exist?
@@ -472,14 +503,20 @@ module Kernel
   end
 
   # Calls the given block with the passed environment variables
-  # added to ENV, then restores ENV afterwards.
-  # <pre>with_env(PATH: "/bin") do
-  #   system "echo $PATH"
-  # end</pre>
+  # added to `ENV`, then restores `ENV` afterwards.
   #
-  # @note This method is *not* thread-safe - other threads
-  #   which happen to be scheduled during the block will also
-  #   see these environment variables.
+  # NOTE: This method is **not** thread-safe – other threads
+  #       which happen to be scheduled during the block will also
+  #       see these environment variables.
+  #
+  # ### Example
+  #
+  # ```ruby
+  # with_env(PATH: "/bin") do
+  #   system "echo $PATH"
+  # end
+  # ```
+  #
   # @api public
   def with_env(hash)
     old_values = {}

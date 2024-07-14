@@ -24,11 +24,15 @@ Style/Documentation:
   AllowedConstants:
     - Homebrew
   Include:
+    - cask/cask.rb
     - cask/dsl.rb
     - cask/dsl/version.rb
     - cask/url.rb
+    - development_tools.rb
     - download_strategy.rb
+    - extend/ENV/super.rb
     - extend/kernel.rb
+    - extend/pathname.rb
     - formula.rb
     - formula_assertions.rb
     - formula_free_port.rb
@@ -64,6 +68,12 @@ Style/Documentation:
     - utils/shebang.rb
     - utils/string_inreplace_extension.rb
     - version.rb
+    - tap.rb
+
+Homebrew/NegateInclude:
+  Exclude:
+    # YARD runs stand-alone.
+    - yard/docstring_parser.rb
 
 Style/DocumentationMethod:
   Include:

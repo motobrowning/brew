@@ -1,10 +1,9 @@
 # typed: true
 # frozen_string_literal: true
 
-# @private
 module CompilerConstants
-  GNU_GCC_VERSIONS = %w[4.9 5 6 7 8 9 10 11 12 13].freeze
-  GNU_GCC_REGEXP = /^gcc-(4\.9|[5-9]|10|11|12|13)$/
+  GNU_GCC_VERSIONS = %w[4.9 5 6 7 8 9 10 11 12 13 14].freeze
+  GNU_GCC_REGEXP = /^gcc-(4\.9|[5-9]|10|11|12|13|14)$/
   COMPILER_SYMBOL_MAP = {
     "gcc"        => :gcc,
     "clang"      => :clang,
@@ -16,8 +15,6 @@ module CompilerConstants
 end
 
 # Class for checking compiler compatibility for a formula.
-#
-# @api private
 class CompilerFailure
   attr_reader :type
 
@@ -68,6 +65,7 @@ class CompilerFailure
     type == compiler.type && version_matched
   end
 
+  sig { returns(String) }
   def inspect
     "#<#{self.class.name}: #{type} #{version}>"
   end
@@ -97,8 +95,6 @@ class CompilerFailure
 end
 
 # Class for selecting a compiler for a formula.
-#
-# @api private
 class CompilerSelector
   include CompilerConstants
 

@@ -4,8 +4,6 @@
 require "requirement"
 
 # A requirement on a specific architecture.
-#
-# @api private
 class ArchRequirement < Requirement
   fatal true
 
@@ -13,7 +11,7 @@ class ArchRequirement < Requirement
 
   def initialize(tags)
     @arch = tags.shift
-    super(tags)
+    super
   end
 
   satisfy(build_env: false) do
@@ -29,6 +27,7 @@ class ArchRequirement < Requirement
     "The #{@arch} architecture is required for this software."
   end
 
+  sig { returns(String) }
   def inspect
     "#<#{self.class.name}: arch=#{@arch.to_s.inspect} #{tags.inspect}>"
   end

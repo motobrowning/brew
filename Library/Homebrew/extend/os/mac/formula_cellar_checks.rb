@@ -1,10 +1,11 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "cache_store"
 require "linkage_checker"
 
 module FormulaCellarChecks
+  sig { returns(T.nilable(String)) }
   def check_shadowed_headers
     return if ["libtool", "subversion", "berkeley-db"].any? do |formula_name|
       formula.name.start_with?(formula_name)
@@ -26,6 +27,7 @@ module FormulaCellarChecks
     EOS
   end
 
+  sig { returns(T.nilable(String)) }
   def check_openssl_links
     return unless formula.prefix.directory?
 
@@ -45,6 +47,7 @@ module FormulaCellarChecks
     EOS
   end
 
+  sig { params(lib: Pathname).returns(T.nilable(String)) }
   def check_python_framework_links(lib)
     python_modules = Pathname.glob lib/"python*/site-packages/**/*.so"
     framework_links = python_modules.select do |obj|
@@ -62,6 +65,7 @@ module FormulaCellarChecks
     EOS
   end
 
+  sig { void }
   def check_linkage
     return unless formula.prefix.directory?
 
@@ -76,7 +80,7 @@ module FormulaCellarChecks
           #{checker.display_test_output}
       EOS
 
-      tab = Tab.for_keg(keg)
+      tab = keg.tab
       if tab.poured_from_bottle
         output += <<~EOS
           Rebuild this from source with:
@@ -88,9 +92,10 @@ module FormulaCellarChecks
     end
   end
 
+  sig { params(formula: Formula).returns(T.nilable(String)) }
   def check_flat_namespace(formula)
     return unless formula.prefix.directory?
-    return if formula.tap.present? && formula.tap.audit_exception(:flat_namespace_allowlist, formula.name)
+    return if formula.tap&.audit_exception(:flat_namespace_allowlist, formula.name)
 
     keg = Keg.new(formula.prefix)
     flat_namespace_files = keg.mach_o_files.reject do |file|
@@ -107,12 +112,13 @@ module FormulaCellarChecks
 
     <<~EOS
       Libraries were compiled with a flat namespace.
-      This can cause linker errors due to name collisions, and
+      This can cause linker errors due to name collisions and
       is often due to a bug in detecting the macOS version.
         #{flat_namespace_files * "\n  "}
     EOS
   end
 
+  sig { void }
   def audit_installed
     generic_audit_installed
     problem_if_output(check_shadowed_headers)
@@ -122,6 +128,7 @@ module FormulaCellarChecks
     problem_if_output(check_flat_namespace(formula))
   end
 
+  sig { params(filename: Pathname).returns(T::Boolean) }
   def valid_library_extension?(filename)
     macos_lib_extensions = %w[.dylib .framework]
     generic_valid_library_extension?(filename) || macos_lib_extensions.include?(filename.extname)

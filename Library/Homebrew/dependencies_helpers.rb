@@ -4,8 +4,6 @@
 require "cask_dependent"
 
 # Helper functions for dependencies.
-#
-# @api private
 module DependenciesHelpers
   def args_includes_ignores(args)
     includes = [:required?, :recommended?] # included by default
@@ -35,7 +33,7 @@ module DependenciesHelpers
       end
 
       # If a tap isn't installed, we can't find the dependencies of one of
-      # its formulae, and an exception will be thrown if we try.
+      # its formulae and an exception will be thrown if we try.
       Dependency.keep_but_prune_recursive_deps if klass == Dependency && dep.tap && !dep.tap.installed?
     end
   end

@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
 require "cmd/shared_examples/args_parse"
+require "dev-cmd/prof"
 
-RSpec.describe "brew prof" do
+RSpec.describe Homebrew::DevCmd::Prof do
   it_behaves_like "parseable arguments"
 
   describe "integration tests", :integration_test, :needs_network do

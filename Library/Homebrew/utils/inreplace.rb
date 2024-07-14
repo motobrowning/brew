@@ -5,8 +5,6 @@ require "utils/string_inreplace_extension"
 
 module Utils
   # Helper functions for replacing text in files in-place.
-  #
-  # @api private
   module Inreplace
     # Error during text replacement.
     class Error < RuntimeError
@@ -25,13 +23,21 @@ module Utils
     # defined by the formula, as only `HOMEBREW_PREFIX` is available
     # in the {DATAPatch embedded patch}.
     #
-    # @example `inreplace` supports regular expressions:
-    #   inreplace "somefile.cfg", /look[for]what?/, "replace by #{bin}/tool"
+    # ### Examples
     #
-    # @example `inreplace` supports blocks:
-    #   inreplace "Makefile" do |s|
-    #     s.gsub! "/usr/local", HOMEBREW_PREFIX.to_s
-    #   end
+    # `inreplace` supports regular expressions:
+    #
+    # ```ruby
+    # inreplace "somefile.cfg", /look[for]what?/, "replace by #{bin}/tool"
+    # ```
+    #
+    # `inreplace` supports blocks:
+    #
+    # ```ruby
+    # inreplace "Makefile" do |s|
+    #   s.gsub! "/usr/local", HOMEBREW_PREFIX.to_s
+    # end
+    # ```
     #
     # @see StringInreplaceExtension
     # @api public
@@ -73,7 +79,6 @@ module Utils
       raise Utils::Inreplace::Error, errors if errors.present?
     end
 
-    # @api private
     def self.inreplace_pairs(path, replacement_pairs, read_only_run: false, silent: false)
       str = File.binread(path)
       contents = StringInreplaceExtension.new(str)

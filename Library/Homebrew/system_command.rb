@@ -5,6 +5,7 @@ require "attrable"
 require "open3"
 require "plist"
 require "shellwords"
+require "uri"
 
 require "context"
 require "extend/io"
@@ -12,14 +13,22 @@ require "utils/timer"
 
 # Class for running sub-processes and capturing their output and exit status.
 #
-# @api private
+# @api internal
 class SystemCommand
   # Helper functions for calling {SystemCommand.run}.
+  #
+  # @api internal
   module Mixin
+    # Run a fallible system command.
+    #
+    # @api internal
     def system_command(executable, **options)
       SystemCommand.run(executable, **options)
     end
 
+    # Run an infallible system command.
+    #
+    # @api internal
     def system_command!(command, **options)
       SystemCommand.run!(command, **options)
     end
@@ -229,14 +238,12 @@ class SystemCommand
     }
     options[:chdir] = chdir if chdir
 
-    raw_stdin, raw_stdout, raw_stderr, raw_wait_thr = ignore_interrupts do
-      Open3.popen3(
-        env.merge({ "COLUMNS" => Tty.width.to_s }),
-        [executable, executable],
-        *args,
-        **options,
-      )
-    end
+    raw_stdin, raw_stdout, raw_stderr, raw_wait_thr = Open3.popen3(
+      env.merge({ "COLUMNS" => Tty.width.to_s }),
+      [executable, executable],
+      *args,
+      **options,
+    )
 
     write_input_to(raw_stdin)
     raw_stdin.close_write

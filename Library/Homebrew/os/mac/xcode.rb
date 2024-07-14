@@ -4,8 +4,6 @@
 module OS
   module Mac
     # Helper module for querying Xcode information.
-    #
-    # @api private
     module Xcode
       DEFAULT_BUNDLE_PATH = Pathname("/Applications/Xcode.app").freeze
       BUNDLE_ID = "com.apple.dt.Xcode"
@@ -17,9 +15,11 @@ module OS
       # This may be a beta version for a beta macOS.
       sig { params(macos: MacOSVersion).returns(String) }
       def self.latest_version(macos: MacOS.version)
-        latest_stable = "15.1"
+        latest_stable = "15.4"
         case macos
-        when "14", "13" then latest_stable
+        when "15" then "16.0"
+        when "14" then latest_stable
+        when "13" then "15.2"
         when "12" then "14.2"
         when "11" then "13.2.1"
         when "10.15" then "12.4"
@@ -42,6 +42,7 @@ module OS
       sig { returns(String) }
       def self.minimum_version
         case MacOS.version
+        when "15" then "16.0"
         when "14" then "15.0"
         when "13" then "14.1"
         when "12" then "13.1"
@@ -50,7 +51,7 @@ module OS
         when "10.14" then "10.2"
         when "10.13" then "9.0"
         when "10.12" then "8.0"
-        else "2.0"
+        else "7.3"
         end
       end
 
@@ -125,7 +126,7 @@ module OS
 
       sig { returns(T::Boolean) }
       def self.installed?
-        odeprecated "`MacOS::Xcode.installed?` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
+        odisabled "`MacOS::Xcode.installed?` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         !prefix.nil?
       end
 
@@ -172,9 +173,12 @@ module OS
         end
       end
 
+      # Get the Xcode version.
+      #
+      # @api internal
       sig { returns(::Version) }
       def self.version
-        odeprecated "`MacOS::Xcode.version` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
+        odisabled "`MacOS::Xcode.version` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         # may return a version string
         # that is guessed based on the compiler, so do not
         # use it in order to check if Xcode is installed.
@@ -252,8 +256,9 @@ module OS
         when "13.0.0" then "13.2.1"
         when "13.1.6" then "13.4.1"
         when "14.0.0" then "14.2"
-        when "15.0.0" then "15.1"
-        else               "14.3"
+        when "14.0.3" then "14.3.1"
+        when "16.0.0" then "16.0"
+        else               "15.4"
         end
       end
 
@@ -264,8 +269,6 @@ module OS
     end
 
     # Helper module for querying macOS Command Line Tools information.
-    #
-    # @api private
     module CLT
       # The original Mavericks CLT package ID
       EXECUTABLE_PKG_ID = "com.apple.pkg.CLTools_Executables"
@@ -275,7 +278,7 @@ module OS
       # Returns true even if outdated tools are installed.
       sig { returns(T::Boolean) }
       def self.installed?
-        odeprecated "`MacOS::CLT.installed?` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
+        odisabled "`MacOS::CLT.installed?` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         !version.null?
       end
 
@@ -348,7 +351,9 @@ module OS
       sig { returns(String) }
       def self.latest_clang_version
         case MacOS.version
-        when "14", "13" then "1500.1.0.2.5"
+        when "15" then "1600.0.20.10"
+        when "14" then "1500.3.9.4"
+        when "13" then "1500.1.0.2.5"
         when "12"    then "1400.0.29.202"
         when "11"    then "1300.0.29.30"
         when "10.15" then "1200.0.32.29"
@@ -365,6 +370,7 @@ module OS
       sig { returns(String) }
       def self.minimum_version
         case MacOS.version
+        when "15" then "16.0.0"
         when "14" then "15.0.0"
         when "13" then "14.0.0"
         when "12" then "13.0.0"
@@ -373,7 +379,7 @@ module OS
         when "10.14" then "10.0.0"
         when "10.13" then "9.0.0"
         when "10.12" then "8.0.0"
-        else              "1.0.0"
+        else              "7.3.0"
         end
       end
 
@@ -406,9 +412,11 @@ module OS
       # Version string (a pretty long one) of the CLT package.
       # Note that the different ways of installing the CLTs lead to different
       # version numbers.
+      #
+      # @api internal
       sig { returns(::Version) }
       def self.version
-        odeprecated "`MacOS::CLT.version` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
+        odisabled "`MacOS::CLT.version` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         if @version ||= detect_version
           ::Version.new @version
         else

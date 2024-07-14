@@ -68,23 +68,23 @@ class Formula
   sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
   def version(*args, **options, &block); end
 
-  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T::Boolean) }
-  def loaded_from_api?(*args, **options, &block); end
+  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
+  def allow_network_access!(*args, **options, &block); end
 
   sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
-  def resource(*args, **options, &block); end
+  def deny_network_access!(*args, **options, &block); end
+
+  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T::Boolean) }
+  def network_access_allowed?(*args, **options, &block); end
+
+  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T::Boolean) }
+  def loaded_from_api?(*args, **options, &block); end
 
   sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
   def deps(*args, **options, &block); end
 
   sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
   def declared_deps(*args, **options, &block); end
-
-  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
-  def uses_from_macos_elements(*args, **options, &block); end
-
-  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
-  def uses_from_macos_names(*args, **options, &block); end
 
   sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
   def requirements(*args, **options, &block); end
@@ -151,9 +151,6 @@ class Formula
 
   sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
   def env(*args, **options, &block); end
-
-  sig { params(args: T.untyped, options: T.untyped, block: T.untyped).returns(T.untyped) }
-  def conflicts(*args, **options, &block); end
 
   sig { returns(T::Boolean) }
   def self.loaded_from_api?; end
@@ -348,6 +345,9 @@ module Cask
     def installed_as_dependency?; end
 
     sig { returns(T::Boolean) }
+    def installed_on_request?; end
+
+    sig { returns(T::Boolean) }
     def quarantine?; end
 
     sig { returns(T::Boolean) }
@@ -361,9 +361,6 @@ module Cask
     end
 
     sig { returns(T::Boolean) }
-    def on_system_blocks_exist?; end
-
-    sig { returns(T::Boolean) }
     def deprecated?; end
 
     sig { returns(T::Boolean) }
@@ -371,6 +368,12 @@ module Cask
 
     sig { returns(T::Boolean) }
     def livecheckable?; end
+
+    sig { returns(T::Boolean) }
+    def on_system_blocks_exist?; end
+
+    sig { returns(T::Boolean) }
+    def depends_on_set_in_block?; end
   end
 end
 

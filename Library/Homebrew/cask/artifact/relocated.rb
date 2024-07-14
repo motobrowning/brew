@@ -7,8 +7,6 @@ require "extend/hash/keys"
 module Cask
   module Artifact
     # Superclass for all artifacts which have a source and a target location.
-    #
-    # @api private
     class Relocated < AbstractArtifact
       def self.from_args(cask, *args)
         source_string, target_hash = args
@@ -40,7 +38,7 @@ module Cask
           .void
       }
       def initialize(cask, source, **target_hash)
-        super(cask, source, **target_hash)
+        super
 
         target = target_hash[:target]
         @source_string = source.to_s

@@ -1,10 +1,10 @@
 # typed: true
 # frozen_string_literal: true
 
+require "os/linux/ld"
+
 # {Pathname} extension for dealing with ELF files.
 # @see https://en.wikipedia.org/wiki/Executable_and_Linkable_Format#File_header
-#
-# @api private
 module ELFShim
   MAGIC_NUMBER_OFFSET = 0
   private_constant :MAGIC_NUMBER_OFFSET
@@ -119,8 +119,6 @@ module ELFShim
   end
 
   # Helper class for reading metadata from an ELF file.
-  #
-  # @api private
   class Metadata
     attr_reader :path, :dylib_id, :dylibs
 
@@ -130,19 +128,7 @@ module ELFShim
       @dylib_id, needed = needed_libraries path
       return if needed.empty?
 
-      ldd = DevelopmentTools.locate "ldd"
-      ldd_output = Utils.popen_read(ldd, path.expand_path.to_s).split("\n")
-      return unless $CHILD_STATUS.success?
-
-      ldd_paths = ldd_output.filter_map do |line|
-        match = line.match(/\t.+ => (.+) \(.+\)|\t(.+) => not found/)
-        next unless match
-
-        match.captures.compact.first
-      end
-      @dylibs = ldd_paths.select do |ldd_path|
-        needed.include? File.basename(ldd_path)
-      end
+      @dylibs = needed.map { |lib| find_full_lib_path(lib).to_s }
     end
 
     private
@@ -156,6 +142,53 @@ module ELFShim
     def needed_libraries_using_patchelf_rb(path)
       patcher = path.patchelf_patcher
       [patcher.soname, patcher.needed]
+    end
+
+    def find_full_lib_path(basename)
+      local_paths = (path.patchelf_patcher.runpath || path.patchelf_patcher.rpath)&.split(":")
+
+      # Search for dependencies in the runpath/rpath first
+      local_paths&.each do |local_path|
+        local_path = OS::Linux::Elf.expand_elf_dst(local_path, "ORIGIN", path.parent)
+        candidate = Pathname(local_path)/basename
+        return candidate if candidate.exist? && candidate.elf?
+      end
+
+      # Check if DF_1_NODEFLIB is set
+      dt_flags_1 = path.patchelf_patcher.elf.segment_by_type(:dynamic)&.tag_by_type(:flags_1)
+      nodeflib_flag = if dt_flags_1.nil?
+        false
+      else
+        dt_flags_1.value & ELFTools::Constants::DF::DF_1_NODEFLIB != 0
+      end
+
+      linker_library_paths = OS::Linux::Ld.library_paths
+      linker_system_dirs = OS::Linux::Ld.system_dirs
+
+      # If DF_1_NODEFLIB is set, exclude any library paths that are subdirectories
+      # of the system dirs
+      if nodeflib_flag
+        linker_library_paths = linker_library_paths.reject do |lib_path|
+          linker_system_dirs.any? { |system_dir| Utils::Path.child_of? system_dir, lib_path }
+        end
+      end
+
+      # If not found, search recursively in the paths listed in ld.so.conf (skipping
+      # paths that are subdirectories of the system dirs if DF_1_NODEFLIB is set)
+      linker_library_paths.each do |linker_library_path|
+        candidate = Pathname(linker_library_path)/basename
+        return candidate if candidate.exist? && candidate.elf?
+      end
+
+      # If not found, search in the system dirs, unless DF_1_NODEFLIB is set
+      unless nodeflib_flag
+        linker_system_dirs.each do |linker_system_dir|
+          candidate = Pathname(linker_system_dir)/basename
+          return candidate if candidate.exist? && candidate.elf?
+        end
+      end
+
+      basename
     end
   end
   private_constant :Metadata
@@ -187,5 +220,39 @@ module ELFShim
 
   def dynamically_linked_libraries(*)
     metadata.dylibs
+  end
+end
+
+module OS
+  module Linux
+    # Helper functions for working with ELF objects.
+    #
+    # @api private
+    module Elf
+      sig { params(str: String, ref: String, repl: T.any(String, Pathname)).returns(String) }
+      def self.expand_elf_dst(str, ref, repl)
+        # ELF gABI rules for DSTs:
+        #   - Longest possible sequence using the rules (greedy).
+        #   - Must start with a $ (enforced by caller).
+        #   - Must follow $ with one underscore or ASCII [A-Za-z] (caller
+        #     follows these rules for REF) or '{' (start curly quoted name).
+        #   - Must follow first two characters with zero or more [A-Za-z0-9_]
+        #     (enforced by caller) or '}' (end curly quoted name).
+        # (from https://github.com/bminor/glibc/blob/41903cb6f460d62ba6dd2f4883116e2a624ee6f8/elf/dl-load.c#L182-L228)
+
+        # In addition to capturing a token, also attempt to capture opening/closing braces and check that they are not
+        # mismatched before expanding.
+        str.gsub(/\$({?)([a-zA-Z_][a-zA-Z0-9_]*)(}?)/) do |orig_str|
+          has_opening_brace = ::Regexp.last_match(1).present?
+          matched_text = ::Regexp.last_match(2)
+          has_closing_brace = ::Regexp.last_match(3).present?
+          if (matched_text == ref) && (has_opening_brace == has_closing_brace)
+            repl
+          else
+            orig_str
+          end
+        end
+      end
+    end
   end
 end

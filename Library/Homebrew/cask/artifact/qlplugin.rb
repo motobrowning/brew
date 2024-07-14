@@ -6,8 +6,6 @@ require "cask/artifact/moved"
 module Cask
   module Artifact
     # Artifact corresponding to the `qlplugin` stanza.
-    #
-    # @api private
     class Qlplugin < Moved
       sig { returns(String) }
       def self.english_name
@@ -15,12 +13,12 @@ module Cask
       end
 
       def install_phase(**options)
-        super(**options)
+        super
         reload_quicklook(**options)
       end
 
       def uninstall_phase(**options)
-        super(**options)
+        super
         reload_quicklook(**options)
       end
 

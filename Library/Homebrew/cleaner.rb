@@ -15,41 +15,43 @@ class Cleaner
   include Context
 
   # Create a cleaner for the given formula.
+  sig { params(formula: Formula).void }
   def initialize(formula)
     @formula = formula
   end
 
   # Clean the keg of the formula.
+  sig { void }
   def clean
     ObserverPathnameExtension.reset_counts!
 
-    # Many formulae include 'lib/charset.alias', but it is not strictly needed
-    # and will conflict if more than one formula provides it
+    # Many formulae include `lib/charset.alias`, but it is not strictly needed
+    # and will conflict if more than one formula provides it.
     observe_file_removal @formula.lib/"charset.alias"
 
     [@formula.bin, @formula.sbin, @formula.lib].each { |dir| clean_dir(dir) if dir.exist? }
 
-    # Get rid of any info 'dir' files, so they don't conflict at the link stage
+    # Get rid of any info `dir` files, so they don't conflict at the link stage.
     #
-    # The 'dir' files come in at least 3 locations:
+    # The `dir` files come in at least 3 locations:
     #
-    # 1. 'info/dir'
-    # 2. 'info/#{name}/dir'
-    # 3. 'info/#{arch}/dir'
+    # 1. `info/dir`
+    # 2. `info/#{name}/dir`
+    # 3. `info/#{arch}/dir`
     #
-    # Of these 3 only 'info/#{name}/dir' is safe to keep since the rest will
+    # Of these 3 only `info/#{name}/dir` is safe to keep since the rest will
     # conflict with other formulae because they use a shared location.
     #
-    # See [cleaner: recursively delete info `dir`s by gromgit · Pull Request
-    # #11597][1], [emacs 28.1 bottle does not contain `dir` file · Issue
-    # #100190][2], and [Keep `info/#{f.name}/dir` files in cleaner by
-    # timvisher][3] for more info.
+    # See
+    # [cleaner: recursively delete info `dir`s][1],
+    # [emacs 28.1 bottle does not contain `dir` file][2] and
+    # [Keep `info/#{f.name}/dir` files in cleaner][3]
+    # for more info.
     #
     # [1]: https://github.com/Homebrew/brew/pull/11597
     # [2]: https://github.com/Homebrew/homebrew-core/issues/100190
     # [3]: https://github.com/Homebrew/brew/pull/13215
-    Dir.glob(@formula.info/"**/dir").each do |file|
-      info_dir_file = Pathname(file)
+    @formula.info.glob("**/dir").each do |info_dir_file|
       next unless info_dir_file.file?
       next if info_dir_file == @formula.info/@formula.name/"dir"
       next if @formula.skip_clean?(info_dir_file)
@@ -58,13 +60,14 @@ class Cleaner
     end
 
     rewrite_shebangs
-    remove_pip_direct_url
+    clean_python_metadata
 
     prune
   end
 
   private
 
+  sig { params(path: Pathname).void }
   def observe_file_removal(path)
     path.extend(ObserverPathnameExtension).unlink if path.exist?
   end
@@ -72,6 +75,7 @@ class Cleaner
   # Removes any empty directories in the formula's prefix subtree
   # Keeps any empty directories protected by skip_clean
   # Removes any unresolved symlinks
+  sig { void }
   def prune
     dirs = []
     symlinks = []
@@ -100,6 +104,7 @@ class Cleaner
     end
   end
 
+  sig { params(path: Pathname).returns(T::Boolean) }
   def executable_path?(path)
     path.text_executable? || path.executable?
   end
@@ -110,15 +115,16 @@ class Cleaner
   # created as part of installing any Perl module.
   PERL_BASENAMES = Set.new(%w[perllocal.pod .packlist]).freeze
 
-  # Clean a top-level (bin, sbin, lib) directory, recursively, by fixing file
+  # Clean a top-level (`bin`, `sbin`, `lib`) directory, recursively, by fixing file
   # permissions and removing .la files, unless the files (or parent
   # directories) are protected by skip_clean.
   #
-  # bin and sbin should not have any subdirectories; if either do that is
-  # caught as an audit warning
+  # `bin` and `sbin` should not have any subdirectories; if either do that is
+  # caught as an audit warning.
   #
-  # lib may have a large directory tree (see Erlang for instance), and
-  # clean_dir applies cleaning rules to the entire tree
+  # `lib` may have a large directory tree (see Erlang for instance) and
+  # clean_dir applies cleaning rules to the entire tree.
+  sig { params(directory: Pathname).void }
   def clean_dir(directory)
     directory.find do |path|
       path.extend(ObserverPathnameExtension)
@@ -132,7 +138,7 @@ class Cleaner
       elsif path.symlink?
         # Skip it.
       else
-        # Set permissions for executables and non-executables
+        # Set permissions for executables and non-executables.
         perms = if executable_path?(path)
           0555
         else
@@ -147,6 +153,7 @@ class Cleaner
     end
   end
 
+  sig { void }
   def rewrite_shebangs
     require "language/perl"
     require "utils/shebang"
@@ -165,25 +172,27 @@ class Cleaner
     end
   end
 
-  # Remove non-reproducible pip direct_url.json which records the /tmp build directory
+  # Remove non-reproducible pip direct_url.json which records the /tmp build directory.
+  # Remove RECORD files to prevent changes to the installed Python package.
+  # Modify INSTALLER to provide information that files are managed by brew.
+  #
+  # @see https://packaging.python.org/en/latest/specifications/recording-installed-packages/
   sig { void }
-  def remove_pip_direct_url
+  def clean_python_metadata
     basepath = @formula.prefix.realpath
     basepath.find do |path|
       Find.prune if @formula.skip_clean?(path)
 
       next if path.directory? || path.symlink?
-      next if path.basename.to_s != "direct_url.json"
       next if path.parent.extname != ".dist-info"
 
-      odebug "Removing #{path}"
-      path.unlink
-
-      record = path.parent/"RECORD"
-      next unless record.file?
-
-      odebug "Modifying #{record}"
-      @formula.inreplace record, %r{^.*/direct_url\.json,.*$\n?}, "", false
+      case path.basename.to_s
+      when "direct_url.json", "RECORD"
+        observe_file_removal path
+      when "INSTALLER"
+        odebug "Modifying #{path} contents from #{path.read.chomp} to brew"
+        path.atomic_write("brew\n")
+      end
     end
   end
 end

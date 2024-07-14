@@ -3,7 +3,6 @@
 
 require "os/mac/xcode"
 
-# @private
 class DevelopmentTools
   class << self
     alias generic_locate locate
@@ -33,6 +32,18 @@ class DevelopmentTools
     sig { returns(Symbol) }
     def default_compiler
       :clang
+    end
+
+    sig { returns(Version) }
+    def ld64_version
+      @ld64_version ||= begin
+        json = Utils.popen_read("/usr/bin/ld", "-version_details")
+        if $CHILD_STATUS.success?
+          Version.parse(JSON.parse(json)["version"])
+        else
+          Version::NULL
+        end
+      end
     end
 
     sig { returns(T::Boolean) }

@@ -7,8 +7,6 @@ require "system_command"
 
 module Homebrew
   # Helper module for running RuboCop.
-  #
-  # @api private
   module Style
     extend SystemCommand::Mixin
 
@@ -17,7 +15,7 @@ module Homebrew
     def self.check_style_and_print(files, **options)
       success = check_style_impl(files, :print, **options)
 
-      if ENV["GITHUB_ACTIONS"] && !success
+      if GitHub::Actions.env_set? && !success
         check_style_json(files, **options).each do |path, offenses|
           offenses.each do |o|
             line = o.location.line
@@ -46,11 +44,31 @@ module Homebrew
                               debug: false, verbose: false)
       raise ArgumentError, "Invalid output type: #{output_type.inspect}" if [:print, :json].exclude?(output_type)
 
-      shell_files, ruby_files =
-        Array(files).map(&method(:Pathname))
-                    .partition { |f| f.realpath == HOMEBREW_BREW_FILE.realpath || f.extname == ".sh" }
+      ruby_files = T.let([], T::Array[Pathname])
+      shell_files = T.let([], T::Array[Pathname])
+      actionlint_files = T.let([], T::Array[Pathname])
+      Array(files).map(&method(:Pathname))
+                  .each do |path|
+        case path.extname
+        when ".rb"
+          ruby_files << path
+        when ".sh"
+          shell_files << path
+        when ".yml"
+          actionlint_files << path if path.realpath.to_s.include?("/.github/workflows/")
+        else
+          ruby_files << path
+          shell_files += if [HOMEBREW_PREFIX, HOMEBREW_REPOSITORY].include?(path)
+            shell_scripts
+          else
+            path.glob("**/*.sh")
+                .reject { |path| path.to_s.include?("/vendor/") || path.directory? }
+          end
+          actionlint_files += (path/".github/workflows").glob("*.y{,a}ml")
+        end
+      end
 
-      rubocop_result = if shell_files.any? && ruby_files.none?
+      rubocop_result = if files.present? && ruby_files.empty?
         (output_type == :json) ? [] : true
       else
         run_rubocop(ruby_files, output_type,
@@ -61,22 +79,28 @@ module Homebrew
                     debug:, verbose:)
       end
 
-      shellcheck_result = if ruby_files.any? && shell_files.none?
+      shellcheck_result = if files.present? && shell_files.empty?
         (output_type == :json) ? [] : true
       else
         run_shellcheck(shell_files, output_type, fix:)
       end
 
-      shfmt_result = if ruby_files.any? && shell_files.none?
+      shfmt_result = if files.present? && shell_files.empty?
         true
       else
         run_shfmt(shell_files, fix:)
       end
 
+      actionlint_result = if files.present? && actionlint_files.empty?
+        true
+      else
+        run_actionlint(actionlint_files)
+      end
+
       if output_type == :json
         Offenses.new(rubocop_result + shellcheck_result)
       else
-        rubocop_result && shellcheck_result && shfmt_result
+        rubocop_result && shellcheck_result && shfmt_result && actionlint_result
       end
     end
 
@@ -85,8 +109,6 @@ module Homebrew
     def self.run_rubocop(files, output_type,
                          fix: false, except_cops: nil, only_cops: nil, display_cop_names: false, reset_cache: false,
                          debug: false, verbose: false)
-      Homebrew.install_bundler_gems!(groups: ["style"])
-
       require "warnings"
 
       Warnings.ignore :parser_syntax do
@@ -107,18 +129,18 @@ module Homebrew
       args += ["--extra-details"] if verbose
 
       if except_cops
-        except_cops.map! { |cop| RuboCop::Cop::Cop.registry.qualified_cop_name(cop.to_s, "") }
+        except_cops.map! { |cop| RuboCop::Cop::Registry.global.qualified_cop_name(cop.to_s, "") }
         cops_to_exclude = except_cops.select do |cop|
-          RuboCop::Cop::Cop.registry.names.include?(cop) ||
-            RuboCop::Cop::Cop.registry.departments.include?(cop.to_sym)
+          RuboCop::Cop::Registry.global.names.include?(cop) ||
+            RuboCop::Cop::Registry.global.departments.include?(cop.to_sym)
         end
 
         args << "--except" << cops_to_exclude.join(",") unless cops_to_exclude.empty?
       elsif only_cops
-        only_cops.map! { |cop| RuboCop::Cop::Cop.registry.qualified_cop_name(cop.to_s, "") }
+        only_cops.map! { |cop| RuboCop::Cop::Registry.global.qualified_cop_name(cop.to_s, "") }
         cops_to_include = only_cops.select do |cop|
-          RuboCop::Cop::Cop.registry.names.include?(cop) ||
-            RuboCop::Cop::Cop.registry.departments.include?(cop.to_sym)
+          RuboCop::Cop::Registry.global.names.include?(cop) ||
+            RuboCop::Cop::Registry.global.departments.include?(cop.to_sym)
         end
 
         odie "RuboCops #{only_cops.join(",")} were not found" if cops_to_include.empty?
@@ -127,12 +149,17 @@ module Homebrew
       end
 
       files&.map!(&:expand_path)
+      base_dir = Dir.pwd
       if files.blank? || files == [HOMEBREW_REPOSITORY]
         files = [HOMEBREW_LIBRARY_PATH]
-      elsif files.any? { |f| f.to_s.start_with? HOMEBREW_REPOSITORY/"docs" }
-        args << "--config" << (HOMEBREW_REPOSITORY/"docs/.rubocop.yml")
-      elsif files.none? { |f| f.to_s.start_with? HOMEBREW_LIBRARY_PATH }
+        base_dir = HOMEBREW_LIBRARY_PATH
+      elsif files.any? { |f| f.to_s.start_with?(HOMEBREW_REPOSITORY/"docs") || (f.basename.to_s == "docs") }
+        args << "--config" << (HOMEBREW_REPOSITORY/"docs/docs_rubocop_style.yml")
+      elsif files.any? { |f| f.to_s.start_with? HOMEBREW_LIBRARY_PATH }
+        base_dir = HOMEBREW_LIBRARY_PATH
+      else
         args << "--config" << (HOMEBREW_LIBRARY/".rubocop.yml")
+        base_dir = HOMEBREW_LIBRARY if files.any? { |f| f.to_s.start_with? HOMEBREW_LIBRARY }
       end
 
       args += files
@@ -152,14 +179,17 @@ module Homebrew
 
         args << "--color" if Tty.color?
 
-        system cache_env, *ruby_args, "--", RUBOCOP, *args
+        system cache_env, *ruby_args, "--", RUBOCOP, *args, chdir: base_dir
         $CHILD_STATUS.success?
       when :json
         result = system_command ruby_args.shift,
-                                args: [*ruby_args, "--", RUBOCOP, "--format", "json", *args],
-                                env:  cache_env
+                                args:  [*ruby_args, "--", RUBOCOP, "--format", "json", *args],
+                                env:   cache_env,
+                                chdir: base_dir
         json = json_result!(result)
-        json["files"]
+        json["files"].each do |file|
+          file["path"] = File.absolute_path(file["path"], base_dir)
+        end
       end
     end
 
@@ -183,7 +213,7 @@ module Homebrew
         #   -f   (--force)       : we know what we are doing, force apply patches
         #   -d / (--directory=/) : change to root directory, since we use absolute file paths
         #   -p0  (--strip=0)     : do not strip path prefixes, since we are at root directory
-        # NOTE: we use short flags where for compatibility
+        # NOTE: We use short flags for compatibility.
         patch_command = %w[patch -g 0 -f -d / -p0]
         patches = system_command(shellcheck, args: ["--format=diff", *args]).stdout
         Utils.safe_popen_write(*patch_command) { |p| p.write(patches) } if patches.present?
@@ -246,6 +276,17 @@ module Homebrew
       $CHILD_STATUS.success?
     end
 
+    def self.run_actionlint(files)
+      files = github_workflow_files if files.blank?
+      # the ignore is to avoid false positives in e.g. actions, homebrew-test-bot
+      system actionlint, "-shellcheck", shellcheck,
+             "-config-file", HOMEBREW_REPOSITORY/".github/actionlint.yaml",
+             "-ignore", "image: string; options: string",
+             "-ignore", "label .* is unknown",
+             *files
+      $CHILD_STATUS.success?
+    end
+
     def self.json_result!(result)
       # An exit status of 1 just means violations were found; other numbers mean
       # execution errors.
@@ -274,6 +315,15 @@ module Homebrew
       ]
     end
 
+    def self.github_workflow_files
+      HOMEBREW_REPOSITORY.glob(".github/workflows/*.yml")
+    end
+
+    def self.rubocop
+      ensure_formula_installed!("rubocop", latest: true,
+                                           reason: "Ruby style checks").opt_bin/"rubocop"
+    end
+
     def self.shellcheck
       ensure_formula_installed!("shellcheck", latest: true,
                                               reason: "shell style checks").opt_bin/"shellcheck"
@@ -283,6 +333,11 @@ module Homebrew
       ensure_formula_installed!("shfmt", latest: true,
                                          reason: "formatting shell scripts")
       HOMEBREW_LIBRARY/"Homebrew/utils/shfmt.sh"
+    end
+
+    def self.actionlint
+      ensure_formula_installed!("actionlint", latest: true,
+                                              reason: "GitHub Actions checks").opt_bin/"actionlint"
     end
 
     # Collection of style offenses.

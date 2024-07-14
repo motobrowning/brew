@@ -6,7 +6,6 @@ require "utils/popen"
 
 # Given a {Pathname}, provides methods for querying Git repository information.
 # @see Utils::Git
-# @api private
 class GitRepository
   sig { returns(Pathname) }
   attr_reader :pathname
@@ -17,9 +16,11 @@ class GitRepository
   end
 
   sig { returns(T::Boolean) }
-  def git_repo?
+  def git_repository?
     pathname.join(".git").exist?
   end
+  # odeprecated: use git_repository? instead
+  alias git_repo? git_repository?
 
   # Gets the URL of the Git origin remote.
   sig { returns(T.nilable(String)) }
@@ -108,9 +109,7 @@ class GitRepository
   end
 
   sig { returns(String) }
-  def to_s
-    pathname.to_s
-  end
+  def to_s = pathname.to_s
 
   private
 

@@ -17,7 +17,7 @@ else
   end
 
   # This list should match .gitignore
-  vendored_versions = ["3.1"].freeze
+  vendored_versions = ["3.3"].freeze
   vendored_versions.include?("#{ruby_major}.#{ruby_minor}")
 end.freeze
 
@@ -29,6 +29,7 @@ $LOAD_PATH.reject! { |path| path.start_with?(RbConfig::CONFIG["sitedir"]) }
 require "pathname"
 dir = __dir__ || raise("__dir__ is not defined")
 HOMEBREW_LIBRARY_PATH = Pathname(dir).parent.realpath.freeze
+HOMEBREW_USING_PORTABLE_RUBY = RbConfig.ruby.include?("/vendor/portable-ruby/").freeze
 
 require_relative "../utils/gems"
 Homebrew.setup_gem_environment!(setup_path: false)
@@ -47,6 +48,7 @@ unless $LOAD_PATH.include?(HOMEBREW_LIBRARY_PATH.to_s)
   $LOAD_PATH.insert(last_homebrew_path_idx + 1, HOMEBREW_LIBRARY_PATH.to_s)
 end
 require_relative "../vendor/bundle/bundler/setup"
+require "portable_ruby_gems" if HOMEBREW_USING_PORTABLE_RUBY
 $LOAD_PATH.unshift "#{HOMEBREW_LIBRARY_PATH}/vendor/bundle/#{RUBY_ENGINE}/#{Gem.ruby_api_version}/gems/" \
                    "bundler-#{Homebrew::HOMEBREW_BUNDLER_VERSION}/lib"
 $LOAD_PATH.uniq!

@@ -31,7 +31,7 @@ RSpec.describe Homebrew::CLI::NamedArgs do
   end
 
   let(:baz) do
-    Cask::CaskLoader.load(+<<~RUBY)
+    Cask::CaskLoader::FromContentLoader.new(+<<~RUBY, tap: CoreCaskTap.instance).load(config: nil)
       cask "baz" do
         version "1.0"
       end
@@ -39,7 +39,7 @@ RSpec.describe Homebrew::CLI::NamedArgs do
   end
 
   let(:foo_cask) do
-    Cask::CaskLoader.load(+<<~RUBY)
+    Cask::CaskLoader::FromContentLoader.new(+<<~RUBY, tap: CoreCaskTap.instance).load(config: nil)
       cask "foo" do
         version "1.0"
       end
@@ -83,6 +83,32 @@ RSpec.describe Homebrew::CLI::NamedArgs do
 
       it "returns formula if loading formula only" do
         expect(described_class.new("foo").to_formulae_and_casks(only: :formula)).to eq [foo]
+      end
+
+      it "returns cask if loading cask only" do
+        expect(described_class.new("foo").to_formulae_and_casks(only: :cask)).to eq [foo_cask]
+      end
+    end
+
+    context "when a non-core formula and a core cask are present" do
+      let(:non_core_formula) do
+        formula "foo", tap: Tap.fetch("some/tap") do
+          url "https://brew.sh"
+          version "1.0"
+        end
+      end
+
+      before do
+        stub_formula_loader non_core_formula, "foo"
+        stub_cask_loader foo_cask
+      end
+
+      it "returns the cask by default" do
+        expect(described_class.new("foo").to_formulae_and_casks).to eq [foo_cask]
+      end
+
+      it "returns formula if loading formula only" do
+        expect(described_class.new("foo").to_formulae_and_casks(only: :formula)).to eq [non_core_formula]
       end
 
       it "returns cask if loading cask only" do
@@ -312,7 +338,7 @@ RSpec.describe Homebrew::CLI::NamedArgs do
 
     it "raises an error for invalid tap" do
       taps = described_class.new("homebrew/foo", "barbaz")
-      expect { taps.to_taps }.to raise_error(ArgumentError, /Invalid tap name/)
+      expect { taps.to_taps }.to raise_error(Tap::InvalidNameError, /Invalid tap name/)
     end
   end
 
@@ -333,7 +359,7 @@ RSpec.describe Homebrew::CLI::NamedArgs do
 
     it "raises an error for invalid tap" do
       taps = described_class.new("homebrew/foo", "barbaz")
-      expect { taps.to_installed_taps }.to raise_error(ArgumentError, /Invalid tap name/)
+      expect { taps.to_installed_taps }.to raise_error(Tap::InvalidNameError, /Invalid tap name/)
     end
   end
 end

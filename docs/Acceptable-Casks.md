@@ -26,13 +26,9 @@ We maintain separate taps for different types of binaries. Our nomenclature is:
 
 Stable versions live in the main repository at [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). They should run on the latest release of macOS or the previous point release (Monterey and Ventura as of late 2022).
 
-#### But there is no Stable version
-
-When software is only available as a beta, development, or unstable version, its cask can go in the main `homebrew/cask` repository. When stable versions become available, only those will be accepted as subsequent updates.
-
 ### Beta, Unstable, Development, Nightly, or Legacy
 
-Alternative versions should be submitted to [Homebrew/homebrew-cask-versions](https://github.com/Homebrew/homebrew-cask-versions).
+These versions also live in the main repository at [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). The filename and token should include `@beta`, `@nightly`, etc. to distinguish them from stable versions.
 
 ### Regional and Localized
 
@@ -54,10 +50,6 @@ For unrelated apps that share a name, the most popular one (usually the one alre
 ### Unofficial, Vendorless, and Walled builds
 
 We do not accept these casks since they involve a higher-than-normal security risk.
-
-### Fonts
-
-Font casks live in the [Homebrew/homebrew-cask-fonts](https://github.com/Homebrew/homebrew-cask-fonts) repository. See the `homebrew/cask-fonts` repository [CONTRIBUTING.md](https://github.com/Homebrew/homebrew-cask-fonts/blob/HEAD/CONTRIBUTING.md) for details.
 
 ## Apps that bundle malware
 

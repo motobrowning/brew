@@ -8,10 +8,17 @@ on:
 
 permissions:
   contents: read
+  pages: read
+
+env:
+  HOMEBREW_DEVELOPER: 1
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_ENV_HINTS: 1
+  HOMEBREW_BOOTSNAP: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
 
 jobs:
-  linting:
-    if: github.repository == 'Homebrew/brew'
+  docs:
     runs-on: ubuntu-22.04
     steps:
       - name: Set up Homebrew
@@ -21,60 +28,48 @@ jobs:
           core: false
           cask: false
           test-bot: false
+
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
 
       - name: Install vale
         run: brew install vale
 
-      - name: Run vale for docs linting
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/docs
-        run: vale .
+      - name: Cleanup Homebrew/brew docs
+        if: github.repository == 'Homebrew/brew'
+        run: |
+          set -xeuo pipefail
+
+          # Avoid failing on broken symlinks.
+          rm Library/Homebrew/os/mac/pkgconfig/fuse/fuse.pc
+          rm Library/Homebrew/os/mac/pkgconfig/fuse/osxfuse.pc
+
+          # No ignore support (https://github.com/errata-ai/vale/issues/131).
+          rm -r Library/Homebrew/vendor
+
+      - name: Run Vale
+        run: vale docs/
 
       - name: Install Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@161cd54b698f1fb3ea539faab2e036d409550e3c # v1.187.0
         with:
-          ruby-version: "3.1"
           bundler-cache: true
-          working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/docs
+          working-directory: docs
 
       - name: Check Markdown syntax
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/docs
+        working-directory: docs
         run: bundle exec rake lint
 
       - name: Check code blocks conform to our Ruby style guide
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/docs
-        run: brew style .
+        run: brew style docs
+
+      - name: Generate formulae.brew.sh API samples
+        if: github.repository == 'Homebrew/formulae.brew.sh'
+        working-directory: docs
+        run: ../script/generate-api-samples.rb
 
       - name: Build the site and check for broken links
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/docs
-        run: |
-          bundle exec rake test
-
-  rubydoc:
-    if: github.repository == 'Homebrew/brew'
-    runs-on: ubuntu-22.04
-    env:
-      BUNDLE_GEMFILE: ${{ github.workspace }}/rubydoc/Gemfile
-    steps:
-      - name: Set up Homebrew
-        id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@master
-        with:
-          core: false
-          cask: false
-          test-bot: false
-
-      - name: Checkout Homebrew/rubydoc.brew.sh
-        uses: actions/checkout@v4
-        with:
-          repository: Homebrew/rubydoc.brew.sh
-          path: rubydoc
-
-      - name: Install Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.1"
-          bundler-cache: true
-
-      - name: Process rubydoc comments
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}/Library/Homebrew
-        run: bundle exec yard doc --no-output --fail-on-warning
+        working-directory: docs
+        run: bundle exec rake test
+        env:
+          JEKYLL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

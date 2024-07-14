@@ -21,13 +21,13 @@ RSpec.describe Utils::Shell do
 
     it "returns /tmp/.zshrc for Zsh if ZDOTDIR is /tmp" do
       ENV["SHELL"] = "/bin/zsh"
-      ENV["ZDOTDIR"] = "/tmp"
+      ENV["HOMEBREW_ZDOTDIR"] = "/tmp"
       expect(described_class.profile).to eq("/tmp/.zshrc")
     end
 
     it "returns ~/.zshrc for Zsh" do
       ENV["SHELL"] = "/bin/zsh"
-      ENV["ZDOTDIR"] = nil
+      ENV["HOMEBREW_ZDOTDIR"] = nil
       expect(described_class.profile).to eq("~/.zshrc")
     end
 
@@ -72,7 +72,7 @@ RSpec.describe Utils::Shell do
   specify "::csh_quote" do
     expect(described_class.send(:csh_quote, "")).to eq("''")
     expect(described_class.send(:csh_quote, "\\")).to eq("\\\\")
-    # NOTE: this test is different than for sh
+    # NOTE: This test is different than for `sh`.
     expect(described_class.send(:csh_quote, "\n")).to eq("'\\\n'")
     expect(described_class.send(:csh_quote, "$")).to eq("\\$")
     expect(described_class.send(:csh_quote, "word")).to eq("word")

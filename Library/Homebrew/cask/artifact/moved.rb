@@ -7,8 +7,6 @@ require "cask/quarantine"
 module Cask
   module Artifact
     # Superclass for all artifacts that are installed by moving them to the target location.
-    #
-    # @api private
     class Moved < Relocated
       sig { returns(String) }
       def self.english_description
@@ -52,12 +50,34 @@ module Cask
           else
             if adopt
               ohai "Adopting existing #{self.class.english_name} at '#{target}'"
-              same = command.run(
-                "/usr/bin/diff",
-                args:         ["--recursive", "--brief", source, target],
-                verbose:,
-                print_stdout: verbose,
-              ).success?
+
+              source_plist = Pathname("#{source}/Contents/Info.plist")
+              target_plist = Pathname("#{target}/Contents/Info.plist")
+              same = if source_plist.size? &&
+                        (source_bundle_version = Homebrew::BundleVersion.from_info_plist(source_plist)) &&
+                        target_plist.size? &&
+                        (target_bundle_version = Homebrew::BundleVersion.from_info_plist(target_plist))
+                if source_bundle_version.short_version == target_bundle_version.short_version
+                  if source_bundle_version.version == target_bundle_version.version
+                    true
+                  else
+                    onoe "The bundle version of #{source} is #{source_bundle_version.version} but " \
+                         "is #{target_bundle_version.version} for #{target}!"
+                    false
+                  end
+                else
+                  onoe "The bundle short version of #{source} is #{source_bundle_version.short_version} but " \
+                       "is #{target_bundle_version.short_version} for #{target}!"
+                  false
+                end
+              else
+                command.run(
+                  "/usr/bin/diff",
+                  args:         ["--recursive", "--brief", source, target],
+                  verbose:,
+                  print_stdout: verbose,
+                ).success?
+              end
 
               unless same
                 raise CaskError,
@@ -73,7 +93,7 @@ module Cask
 
             message = "It seems there is already #{self.class.english_article} " \
                       "#{self.class.english_name} at '#{target}'"
-            raise CaskError, "#{message}." unless force
+            raise CaskError, "#{message}." if !force && !adopt
 
             opoo "#{message}; overwriting."
             delete(target, force:, command:, **options)
@@ -120,13 +140,13 @@ module Cask
         end
       end
 
-      def move_back(skip: false, force: false, command: nil, **options)
+      def move_back(skip: false, force: false, adopt: false, command: nil, **options)
         FileUtils.rm source if source.symlink? && source.dirname.join(source.readlink) == target
 
         if Utils.path_occupied?(source)
           message = "It seems there is already #{self.class.english_article} " \
                     "#{self.class.english_name} at '#{source}'"
-          raise CaskError, "#{message}." unless force
+          raise CaskError, "#{message}." if !force && !adopt
 
           opoo "#{message}; overwriting."
           delete(source, force:, command:, **options)
@@ -159,14 +179,8 @@ module Cask
           # If an app folder is deleted, macOS considers the app uninstalled and removes some data.
           # Remove only the contents to handle this case.
           target.children.each do |child|
-            if target.writable? && !force
-              child.rmtree
-            else
-              Utils.gain_permissions_remove(child, command:)
-            end
+            Utils.gain_permissions_remove(child, command:)
           end
-        elsif target.parent.writable? && !force
-          target.rmtree
         else
           Utils.gain_permissions_remove(target, command:)
         end

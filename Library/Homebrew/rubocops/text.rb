@@ -7,12 +7,12 @@ module RuboCop
   module Cop
     module FormulaAudit
       # This cop checks for various problems in a formula's source code.
-      #
-      # @api private
       class Text < FormulaCop
         extend AutoCorrector
 
-        def audit_formula(node, _class_node, _parent_class_node, body_node)
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          node = formula_nodes.node
           full_source_content = source_buffer(node).source
 
           if (match = full_source_content.match(/^require ['"]formula['"]$/))
@@ -22,7 +22,7 @@ module RuboCop
             end
           end
 
-          return if body_node.nil?
+          return if (body_node = formula_nodes.body_node).nil?
 
           if find_method_def(body_node, :plist)
             problem "`def plist` is deprecated. Please use services instead: https://docs.brew.sh/Formula-Cookbook#service-files"
@@ -32,8 +32,15 @@ module RuboCop
             problem "Formulae should not depend on both OpenSSL and LibreSSL (even optionally)."
           end
 
-          if formula_tap == "homebrew-core" && (depends_on?("veclibfort") || depends_on?("lapack"))
-            problem "Formulae in homebrew/core should use OpenBLAS as the default serial linear algebra library."
+          if formula_tap == "homebrew-core"
+            if depends_on?("veclibfort") || depends_on?("lapack")
+              problem "Formulae in homebrew/core should use OpenBLAS as the default serial linear algebra library."
+            end
+
+            if find_node_method_by_name(body_node, :keg_only)&.source&.include?("HOMEBREW_PREFIX")
+              problem "`keg_only` reason should not include `HOMEBREW_PREFIX` " \
+                      "as it creates confusing `brew info` output."
+            end
           end
 
           unless method_called_ever?(body_node, :go_resource)
@@ -107,11 +114,10 @@ module RuboCop
 
     module FormulaAuditStrict
       # This cop contains stricter checks for various problems in a formula's source code.
-      #
-      # @api private
       class Text < FormulaCop
-        def audit_formula(_node, _class_node, _parent_class_node, body_node)
-          return if body_node.nil?
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          return if (body_node = formula_nodes.body_node).nil?
 
           find_method_with_args(body_node, :go_resource) do
             problem "`go_resource`s are deprecated. Please ask upstream to implement Go vendoring"

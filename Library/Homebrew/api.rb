@@ -4,13 +4,13 @@
 require "api/analytics"
 require "api/cask"
 require "api/formula"
-require "base64" # TODO: Add this to the Gemfile or remove it before moving to Ruby 3.4.
-require "extend/cachable"
+require "warnings"
+Warnings.ignore :default_gems do
+  require "base64" # TODO: Add this to the Gemfile or remove it before moving to Ruby 3.4.
+end
 
 module Homebrew
   # Helper functions for using Homebrew's formulae.brew.sh API.
-  #
-  # @api private
   module API
     extend Cachable
 
@@ -191,7 +191,6 @@ module Homebrew
     end
   end
 
-  # @api private
   sig { params(block: T.proc.returns(T.untyped)).returns(T.untyped) }
   def self.with_no_api_env(&block)
     return yield if Homebrew::EnvConfig.no_install_from_api?
@@ -199,7 +198,6 @@ module Homebrew
     with_env(HOMEBREW_NO_INSTALL_FROM_API: "1", HOMEBREW_AUTOMATICALLY_SET_NO_INSTALL_FROM_API: "1", &block)
   end
 
-  # @api private
   sig { params(condition: T::Boolean, block: T.proc.returns(T.untyped)).returns(T.untyped) }
   def self.with_no_api_env_if_needed(condition, &block)
     return yield unless condition

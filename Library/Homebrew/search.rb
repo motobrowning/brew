@@ -5,8 +5,6 @@ require "description_cache_store"
 
 module Homebrew
   # Helper module for searching formulae or casks.
-  #
-  # @api private
   module Search
     def self.query_regexp(query)
       if (m = query.match(%r{^/(.*)/$}))
@@ -24,9 +22,19 @@ module Homebrew
 
       if args.formula? || both
         ohai "Formulae"
-        CacheStoreDatabase.use(:descriptions) do |db|
-          cache_store = DescriptionCacheStore.new(db)
-          Descriptions.search(string_or_regex, search_type, cache_store, eval_all).print
+        if eval_all
+          CacheStoreDatabase.use(:descriptions) do |db|
+            cache_store = DescriptionCacheStore.new(db)
+            Descriptions.search(string_or_regex, search_type, cache_store, eval_all).print
+          end
+        else
+          unofficial = Tap.all.sum { |tap| tap.official? ? 0 : tap.formula_files.size }
+          if unofficial.positive?
+            opoo "Use `--eval-all` to search #{unofficial} additional " \
+                 "#{Utils.pluralize("formula", unofficial, plural: "e")} in third party taps."
+          end
+          descriptions = Homebrew::API::Formula.all_formulae.transform_values { |data| data["desc"] }
+          Descriptions.search(string_or_regex, search_type, descriptions, eval_all, cache_store_hash: true).print
         end
       end
       return if !args.cask? && !both
@@ -34,9 +42,19 @@ module Homebrew
       puts if both
 
       ohai "Casks"
-      CacheStoreDatabase.use(:cask_descriptions) do |db|
-        cache_store = CaskDescriptionCacheStore.new(db)
-        Descriptions.search(string_or_regex, search_type, cache_store, eval_all).print
+      if eval_all
+        CacheStoreDatabase.use(:cask_descriptions) do |db|
+          cache_store = CaskDescriptionCacheStore.new(db)
+          Descriptions.search(string_or_regex, search_type, cache_store, eval_all).print
+        end
+      else
+        unofficial = Tap.all.sum { |tap| tap.official? ? 0 : tap.cask_files.size }
+        if unofficial.positive?
+          opoo "Use `--eval-all` to search #{unofficial} additional " \
+               "#{Utils.pluralize("cask", unofficial)} in third party taps."
+        end
+        descriptions = Homebrew::API::Cask.all_casks.transform_values { |c| [c["name"].join(", "), c["desc"]] }
+        Descriptions.search(string_or_regex, search_type, descriptions, eval_all, cache_store_hash: true).print
       end
     end
 
@@ -81,12 +99,14 @@ module Homebrew
         end
       end
 
-      cask_tokens = Tap.flat_map(&:cask_tokens).filter_map do |c|
-        next if c.start_with?("homebrew/cask/") && !Homebrew::EnvConfig.no_install_from_api?
-
-        c.sub(%r{^homebrew/cask.*/}, "")
-      end
-      cask_tokens |= Homebrew::API::Cask.all_casks.keys unless Homebrew::EnvConfig.no_install_from_api?
+      cask_tokens = Tap.each_with_object([]) do |tap, array|
+        # We can exclude the core cask tap because `CoreCaskTap#cask_tokens` returns short names by default.
+        if tap.official? && !tap.core_cask_tap?
+          tap.cask_tokens.each { |token| array << token.sub(%r{^homebrew/cask.*/}, "") }
+        else
+          tap.cask_tokens.each { |token| array << token }
+        end
+      end.uniq
 
       results = search(cask_tokens, string_or_regex)
       results += DidYouMean::SpellChecker.new(dictionary: cask_tokens)

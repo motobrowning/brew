@@ -67,6 +67,7 @@ class GitHubRunnerMatrix
 
   SELF_HOSTED_LINUX_RUNNER = "linux-self-hosted-1"
   GITHUB_ACTIONS_LONG_TIMEOUT = 4320
+  GITHUB_ACTIONS_SHORT_TIMEOUT = 120
 
   sig { returns(LinuxRunnerSpec) }
   def linux_runner_spec
@@ -105,8 +106,10 @@ class GitHubRunnerMatrix
     runner.freeze
   end
 
-  NEWEST_GITHUB_ACTIONS_MACOS_RUNNER = :ventura
-  OLDEST_GITHUB_ACTIONS_MACOS_RUNNER = :big_sur
+  NEWEST_GITHUB_ACTIONS_INTEL_MACOS_RUNNER = :ventura
+  OLDEST_GITHUB_ACTIONS_INTEL_MACOS_RUNNER = :big_sur
+  NEWEST_GITHUB_ACTIONS_ARM_MACOS_RUNNER = :sonoma
+  OLDEST_GITHUB_ACTIONS_ARM_MACOS_RUNNER = :sonoma
   GITHUB_ACTIONS_RUNNER_TIMEOUT = 360
 
   sig { void }
@@ -118,57 +121,62 @@ class GitHubRunnerMatrix
     end
 
     github_run_id      = ENV.fetch("GITHUB_RUN_ID")
-    timeout            = ENV.fetch("HOMEBREW_MACOS_TIMEOUT").to_i
+    long_timeout       = ENV.fetch("HOMEBREW_MACOS_LONG_TIMEOUT", "false") == "true"
     use_github_runner  = ENV.fetch("HOMEBREW_MACOS_BUILD_ON_GITHUB_RUNNER", "false") == "true"
+
+    runner_timeout = long_timeout ? GITHUB_ACTIONS_LONG_TIMEOUT : GITHUB_ACTIONS_SHORT_TIMEOUT
+
+    # Use GitHub Actions macOS Runner for testing dependents if compatible with timeout.
+    use_github_runner ||= @dependent_matrix
+    use_github_runner &&= runner_timeout <= GITHUB_ACTIONS_RUNNER_TIMEOUT
 
     ephemeral_suffix = +"-#{github_run_id}"
     ephemeral_suffix << "-deps" if @dependent_matrix
+    ephemeral_suffix << "-long" if runner_timeout == GITHUB_ACTIONS_LONG_TIMEOUT
     ephemeral_suffix.freeze
 
     MacOSVersion::SYMBOLS.each_value do |version|
       macos_version = MacOSVersion.new(version)
       next if macos_version.unsupported_release?
 
-      # Intel Big Sur is a bit slower than the other runners,
-      # so give it a little bit more time. The comparison below
-      # should be `==`, but it returns typecheck errors.
-      runner_timeout = timeout
-      runner_timeout += 30 if macos_version <= :big_sur
+      github_runner_available = macos_version <= NEWEST_GITHUB_ACTIONS_INTEL_MACOS_RUNNER &&
+                                macos_version >= OLDEST_GITHUB_ACTIONS_INTEL_MACOS_RUNNER
 
-      # Use GitHub Actions macOS Runner for testing dependents if compatible with timeout.
-      runner, runner_timeout = if (@dependent_matrix || use_github_runner) &&
-                                  macos_version <= NEWEST_GITHUB_ACTIONS_MACOS_RUNNER &&
-                                  macos_version >= OLDEST_GITHUB_ACTIONS_MACOS_RUNNER &&
-                                  runner_timeout <= GITHUB_ACTIONS_RUNNER_TIMEOUT
+      runner, timeout = if use_github_runner && github_runner_available
         ["macos-#{version}", GITHUB_ACTIONS_RUNNER_TIMEOUT]
       else
-        ["#{version}#{ephemeral_suffix}", runner_timeout]
+        ["#{version}-x86_64#{ephemeral_suffix}", runner_timeout]
       end
 
+      # macOS 12-x86_64 is usually slower.
+      timeout += 30 if macos_version <= :monterey
       spec = MacOSRunnerSpec.new(
         name:    "macOS #{version}-x86_64",
         runner:,
-        timeout: runner_timeout,
+        timeout:,
         cleanup: !runner.end_with?(ephemeral_suffix),
       )
       @runners << create_runner(:macos, :x86_64, spec, macos_version)
 
       next if macos_version < :big_sur
 
-      runner = +"#{version}-arm64"
-      runner_timeout = timeout
+      github_runner_available = macos_version <= NEWEST_GITHUB_ACTIONS_ARM_MACOS_RUNNER &&
+                                macos_version >= OLDEST_GITHUB_ACTIONS_ARM_MACOS_RUNNER
 
-      use_ephemeral = macos_version >= :monterey
-      runner << ephemeral_suffix if use_ephemeral
-
-      runner.freeze
+      runner, timeout = if use_github_runner && github_runner_available
+        ["macos-#{version}", GITHUB_ACTIONS_RUNNER_TIMEOUT]
+      elsif macos_version >= :monterey
+        ["#{version}-arm64#{ephemeral_suffix}", runner_timeout]
+      else
+        ["#{version}-arm64", runner_timeout]
+      end
 
       # The ARM runners are typically over twice as fast as the Intel runners.
-      runner_timeout /= 2 if runner_timeout < GITHUB_ACTIONS_LONG_TIMEOUT
+      timeout /= 2 if !(use_github_runner && github_runner_available) && timeout < GITHUB_ACTIONS_LONG_TIMEOUT
       spec = MacOSRunnerSpec.new(
         name:    "macOS #{version}-arm64",
         runner:,
-        timeout: runner_timeout,
+        timeout:,
         cleanup: !runner.end_with?(ephemeral_suffix),
       )
       @runners << create_runner(:macos, :arm64, spec, macos_version)

@@ -4,8 +4,6 @@
 require "monitor"
 
 # Module for querying the current execution context.
-#
-# @api private
 module Context
   extend MonitorMixin
 
@@ -65,7 +63,7 @@ module Context
   end
 
   def with_context(**options)
-    old_context = Thread.current[:context]
+    old_context = Context.current
 
     new_context = ContextStruct.new(
       debug:   options.fetch(:debug, old_context&.debug?),

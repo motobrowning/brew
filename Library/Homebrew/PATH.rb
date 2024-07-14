@@ -1,9 +1,9 @@
 # typed: true
 # frozen_string_literal: true
 
+require "forwardable"
+
 # Representation of a `*PATH` environment variable.
-#
-# @api private
 class PATH
   include Enumerable
   extend Forwardable
@@ -61,7 +61,9 @@ class PATH
   def to_str
     @paths.join(File::PATH_SEPARATOR)
   end
-  alias to_s to_str
+
+  sig { returns(String) }
+  def to_s = to_str
 
   sig { params(other: T.untyped).returns(T::Boolean) }
   def ==(other)

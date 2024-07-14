@@ -1,12 +1,10 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "utils/github"
 require "json"
 
 # GitHub Releases client.
-#
-# @api private
 class GitHubReleases
   include Context
 

@@ -6,8 +6,6 @@ require "keg"
 require "tab"
 
 # Helper class for migrating a formula from an old to a new name.
-#
-# @api private
 class Migrator
   include Context
 
@@ -130,7 +128,7 @@ class Migrator
     @old_cellar = HOMEBREW_CELLAR/oldname
     raise MigratorNoOldpathError, oldname unless old_cellar.exist?
 
-    @old_tabs = old_cellar.subdirs.map { |d| Tab.for_keg(Keg.new(d)) }
+    @old_tabs = old_cellar.subdirs.map { |d| Keg.new(d).tab }
     @old_tap = old_tabs.first.tap
 
     raise MigratorDifferentTapsError.new(formula, oldname, old_tap) if !force && !from_same_tap_user?
@@ -289,17 +287,18 @@ class Migrator
   def repin
     return unless pinned?
 
-    # old_pin_record is a relative symlink and when we try to to read it
+    # `old_pin_record` is a relative symlink and when we try to to read it
     # from <dir> we actually try to find file
     # <dir>/../<...>/../Cellar/name/version.
     # To repin formula we need to update the link thus that it points to
     # the right directory.
-    # NOTE: old_pin_record.realpath.sub(oldname, newname) is unacceptable
-    # here, because it resolves every symlink for old_pin_record and then
+    #
+    # NOTE: `old_pin_record.realpath.sub(oldname, newname)` is unacceptable
+    # here, because it resolves every symlink for `old_pin_record` and then
     # substitutes oldname with newname. It breaks things like
-    # Pathname#make_relative_symlink, where Pathname#relative_path_from
-    # is used to find relative path from source to destination parent and
-    # it assumes no symlinks.
+    # `Pathname#make_relative_symlink`, where `Pathname#relative_path_from`
+    # is used to find the relative path from source to destination parent
+    # and it assumes no symlinks.
     src_oldname = (old_pin_record.dirname/old_pin_link_record).expand_path
     new_pin_record.make_relative_symlink(src_oldname.sub(oldname, newname))
     old_pin_record.delete
@@ -375,7 +374,7 @@ class Migrator
   # After migration every `INSTALL_RECEIPT.json` has the wrong path to the formula
   # so we must update `INSTALL_RECEIPT`s.
   def update_tabs
-    new_tabs = new_cellar.subdirs.map { |d| Tab.for_keg(Keg.new(d)) }
+    new_tabs = new_cellar.subdirs.map { |d| Keg.new(d).tab }
     new_tabs.each do |tab|
       tab.source["path"] = formula.path.to_s if tab.source["path"]
       tab.write

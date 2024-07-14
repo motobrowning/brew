@@ -6,8 +6,6 @@ require "unpack_strategy"
 module Cask
   class DSL
     # Class corresponding to the `container` stanza.
-    #
-    # @api private
     class Container
       attr_accessor :nested, :type
 
@@ -29,9 +27,8 @@ module Cask
         pairs.to_yaml
       end
 
-      def to_s
-        pairs.inspect
-      end
+      sig { returns(String) }
+      def to_s = pairs.inspect
     end
   end
 end

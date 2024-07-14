@@ -1,7 +1,8 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "livecheck/constants"
+require "cask/cask"
 
 # The {Livecheck} class implements the DSL methods used in a formula's, cask's
 # or resource's `livecheck` block and stores related instance variables. Most
@@ -22,14 +23,15 @@ class Livecheck
   sig { params(package_or_resource: T.any(Cask::Cask, T.class_of(Formula), Resource)).void }
   def initialize(package_or_resource)
     @package_or_resource = package_or_resource
-    @referenced_cask_name = nil
-    @referenced_formula_name = nil
-    @regex = nil
-    @skip = false
-    @skip_msg = nil
-    @strategy = nil
-    @strategy_block = nil
-    @url = nil
+    @referenced_cask_name = T.let(nil, T.nilable(String))
+    @referenced_formula_name = T.let(nil, T.nilable(String))
+    @regex = T.let(nil, T.nilable(Regexp))
+    @skip = T.let(false, T::Boolean)
+    @skip_msg = T.let(nil, T.nilable(String))
+    @strategy = T.let(nil, T.nilable(Symbol))
+    @strategy_block = T.let(nil, T.nilable(Proc))
+    @throttle = T.let(nil, T.nilable(Integer))
+    @url = T.let(nil, T.any(NilClass, String, Symbol))
   end
 
   # Sets the `@referenced_cask_name` instance variable to the provided `String`
@@ -135,6 +137,23 @@ class Livecheck
   sig { returns(T.nilable(Proc)) }
   attr_reader :strategy_block
 
+  # Sets the `@throttle` instance variable to the provided `Integer` or returns
+  # the `@throttle` instance variable when no argument is provided.
+  sig {
+    params(
+      # Throttle rate of version patch number to use for bumpable versions.
+      rate: Integer,
+    ).returns(T.nilable(Integer))
+  }
+  def throttle(rate = T.unsafe(nil))
+    case rate
+    when nil
+      @throttle
+    when Integer
+      @throttle = rate
+    end
+  end
+
   # Sets the `@url` instance variable to the provided argument or returns the
   # `@url` instance variable when no argument is provided. The argument can be
   # a `String` (a URL) or a supported `Symbol` corresponding to a URL in the
@@ -171,6 +190,7 @@ class Livecheck
       "skip"     => @skip,
       "skip_msg" => @skip_msg,
       "strategy" => @strategy,
+      "throttle" => @throttle,
       "url"      => @url,
     }
   end

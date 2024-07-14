@@ -1,11 +1,10 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "env_config"
 require "cask/config"
 
 module Cask
-  # @api private
   class Upgrade
     sig {
       params(

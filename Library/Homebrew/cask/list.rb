@@ -4,7 +4,6 @@
 require "cask/artifact/relocated"
 
 module Cask
-  # @api private
   class List
     def self.list_casks(*casks, one: false, full_name: false, versions: false)
       output = if casks.any?
@@ -20,9 +19,9 @@ module Cask
       elsif full_name
         puts output.map(&:full_name).sort(&tap_and_name_comparison)
       elsif versions
-        puts output.map(&method(:format_versioned))
+        puts output.map { format_versioned(_1) }
       elsif !output.empty? && casks.any?
-        output.map(&method(:list_artifacts))
+        output.map { list_artifacts(_1) }
       elsif !output.empty?
         puts Formatter.columns(output.map(&:to_s))
       end

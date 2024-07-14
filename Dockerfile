@@ -4,6 +4,12 @@ ARG version=22.04
 FROM ubuntu:"${version}"
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Deterministic UID (first user). Helps with docker build cache
+ENV USER_ID=1000
+# Delete the default ubuntu user & group UID=1000 GID=1000 in Ubuntu 23.04+
+# that conflicts with the linuxbrew user
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu; true
+
 # We don't want to manually pin versions, happy to use whatever
 # Ubuntu thinks is best.
 # hadolint ignore=DL3008
@@ -27,7 +33,6 @@ RUN apt-get update \
   git \
   gpg \
   less \
-  libz-dev \
   locales \
   make \
   netbase \
@@ -49,7 +54,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && sed -i -E 's/^(USERGROUPS_ENAB\s+)yes$/\1no/' /etc/login.defs \
   && localedef -i en_US -f UTF-8 en_US.UTF-8 \
-  && useradd --create-home --shell /bin/bash --user-group linuxbrew \
+  && useradd -u "${USER_ID}" --create-home --shell /bin/bash --user-group linuxbrew \
   && echo 'linuxbrew ALL=(ALL) NOPASSWD:ALL' >>/etc/sudoers \
   && su - linuxbrew -c 'mkdir ~/.linuxbrew'
 
@@ -59,7 +64,17 @@ ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}
   XDG_CACHE_HOME=/home/linuxbrew/.cache
 WORKDIR /home/linuxbrew
 
-RUN mkdir -p \
+
+RUN --mount=type=cache,target=/tmp/homebrew-core,uid="${USER_ID}",sharing=locked \
+    # Clone the homebre-core repo into /tmp/homebrew-core or pull latest changes if it exists
+    git clone https://github.com/homebrew/homebrew-core /tmp/homebrew-core || { cd /tmp/homebrew-core && git pull; } \
+    && mkdir -p /home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/homebrew/homebrew-core \
+    && cp -r /tmp/homebrew-core /home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/homebrew/
+
+
+RUN --mount=type=cache,target=/home/linuxbrew/.cache,uid="${USER_ID}" \
+   --mount=type=cache,target=/home/linuxbrew/.bundle,uid="${USER_ID}" \
+   mkdir -p \
   .linuxbrew/bin \
   .linuxbrew/etc \
   .linuxbrew/include \
@@ -77,5 +92,4 @@ RUN mkdir -p \
   && brew cleanup \
   && { git -C .linuxbrew/Homebrew config --unset gc.auto; true; } \
   && { git -C .linuxbrew/Homebrew config --unset homebrew.devcmdrun; true; } \
-  && rm -rf .cache \
   && touch .linuxbrew/.homebrewdocker

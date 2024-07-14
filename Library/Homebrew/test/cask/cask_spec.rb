@@ -46,13 +46,13 @@ RSpec.describe Cask::Cask, :cask do
       expect(c.token).to eq("caffeine")
     end
 
-    it "returns an instance of the Cask from a URL" do
+    it "returns an instance of the Cask from a URL", :needs_utils_curl, :no_api do
       c = Cask::CaskLoader.load("file://#{tap_path}/Casks/local-caffeine.rb")
       expect(c).to be_a(described_class)
       expect(c.token).to eq("local-caffeine")
     end
 
-    it "raises an error when failing to download a Cask from a URL" do
+    it "raises an error when failing to download a Cask from a URL", :needs_utils_curl, :no_api do
       expect do
         Cask::CaskLoader.load("file://#{tap_path}/Casks/notacask.rb")
       end.to raise_error(Cask::CaskUnavailableError)
@@ -212,6 +212,115 @@ RSpec.describe Cask::Cask, :cask do
     end
   end
 
+  describe "#artifacts_list" do
+    subject(:cask) { Cask::CaskLoader.load("many-artifacts") }
+
+    it "returns all artifacts when no options are given" do
+      expected_artifacts = [
+        { uninstall_preflight: nil },
+        { preflight: nil },
+        { uninstall: [{
+          rmdir: "#{TEST_TMPDIR}/empty_directory_path",
+          trash: ["#{TEST_TMPDIR}/foo", "#{TEST_TMPDIR}/bar"],
+        }] },
+        { pkg: ["ManyArtifacts/ManyArtifacts.pkg"] },
+        { app: ["ManyArtifacts/ManyArtifacts.app"] },
+        { uninstall_postflight: nil },
+        { postflight: nil },
+        { zap: [{
+          rmdir: ["~/Library/Caches/ManyArtifacts", "~/Library/Application Support/ManyArtifacts"],
+          trash: "~/Library/Logs/ManyArtifacts.log",
+        }] },
+      ]
+
+      expect(cask.artifacts_list).to eq(expected_artifacts)
+    end
+
+    it "skips flight blocks when compact is true" do
+      expected_artifacts = [
+        { uninstall: [{
+          rmdir: "#{TEST_TMPDIR}/empty_directory_path",
+          trash: ["#{TEST_TMPDIR}/foo", "#{TEST_TMPDIR}/bar"],
+        }] },
+        { pkg: ["ManyArtifacts/ManyArtifacts.pkg"] },
+        { app: ["ManyArtifacts/ManyArtifacts.app"] },
+        { zap: [{
+          rmdir: ["~/Library/Caches/ManyArtifacts", "~/Library/Application Support/ManyArtifacts"],
+          trash: "~/Library/Logs/ManyArtifacts.log",
+        }] },
+      ]
+
+      expect(cask.artifacts_list(compact: true)).to eq(expected_artifacts)
+    end
+
+    it "returns only uninstall artifacts when uninstall_only is true" do
+      expected_artifacts = [
+        { uninstall_preflight: nil },
+        { uninstall: [{
+          rmdir: "#{TEST_TMPDIR}/empty_directory_path",
+          trash: ["#{TEST_TMPDIR}/foo", "#{TEST_TMPDIR}/bar"],
+        }] },
+        { app: ["ManyArtifacts/ManyArtifacts.app"] },
+        { uninstall_postflight: nil },
+        { zap: [{
+          rmdir: ["~/Library/Caches/ManyArtifacts", "~/Library/Application Support/ManyArtifacts"],
+          trash: "~/Library/Logs/ManyArtifacts.log",
+        }] },
+      ]
+
+      expect(cask.artifacts_list(uninstall_only: true)).to eq(expected_artifacts)
+    end
+
+    it "skips flight blocks and returns only uninstall artifacts when compact and uninstall_only are true" do
+      expected_artifacts = [
+        { uninstall: [{
+          rmdir: "#{TEST_TMPDIR}/empty_directory_path",
+          trash: ["#{TEST_TMPDIR}/foo", "#{TEST_TMPDIR}/bar"],
+        }] },
+        { app: ["ManyArtifacts/ManyArtifacts.app"] },
+        { zap: [{
+          rmdir: ["~/Library/Caches/ManyArtifacts", "~/Library/Application Support/ManyArtifacts"],
+          trash: "~/Library/Logs/ManyArtifacts.log",
+        }] },
+      ]
+
+      expect(cask.artifacts_list(compact: true, uninstall_only: true)).to eq(expected_artifacts)
+    end
+  end
+
+  describe "#uninstall_flight_blocks?" do
+    matcher :have_uninstall_flight_blocks do
+      match do |actual|
+        actual.uninstall_flight_blocks? == true
+      end
+    end
+
+    it "returns true when there are uninstall_preflight blocks" do
+      cask = Cask::CaskLoader.load("with-uninstall-preflight")
+      expect(cask).to have_uninstall_flight_blocks
+    end
+
+    it "returns true when there are uninstall_postflight blocks" do
+      cask = Cask::CaskLoader.load("with-uninstall-postflight")
+      expect(cask).to have_uninstall_flight_blocks
+    end
+
+    it "returns false when there are only preflight blocks" do
+      cask = Cask::CaskLoader.load("with-preflight")
+      expect(cask).not_to have_uninstall_flight_blocks
+    end
+
+    it "returns false when there are only postflight blocks" do
+      cask = Cask::CaskLoader.load("with-postflight")
+      expect(cask).not_to have_uninstall_flight_blocks
+    end
+
+    it "returns false when there are no flight blocks" do
+      cask = Cask::CaskLoader.load("local-caffeine")
+      expect(cask).not_to have_uninstall_flight_blocks
+    end
+  end
+
   describe "#to_h" do
     let(:expected_json) { (TEST_FIXTURE_DIR/"cask/everything.json").read.strip }
 
@@ -219,7 +328,11 @@ RSpec.describe Cask::Cask, :cask do
       it "returns expected hash" do
         allow(MacOS).to receive(:version).and_return(MacOSVersion.new("13"))
 
-        hash = Cask::CaskLoader.load("everything").to_h
+        cask = Cask::CaskLoader.load("everything")
+
+        expect(cask.tap).to receive(:git_head).and_return("abcdef1234567890abcdef1234567890abcdef12")
+
+        hash = cask.to_h
 
         expect(hash).to be_a(Hash)
         expect(JSON.pretty_generate(hash)).to eq(expected_json)
@@ -328,8 +441,8 @@ RSpec.describe Cask::Cask, :cask do
       expect(JSON.pretty_generate(h["variations"])).to eq expected_sha256_variations.strip
     end
 
-    # @note The calls to `Cask.generating_hash!` and `Cask.generated_hash!`
-    #   are not idempotent so they can only be used in one test.
+    # NOTE: The calls to `Cask.generating_hash!` and `Cask.generated_hash!`
+    #       are not idempotent so they can only be used in one test.
     it "returns the correct hash placeholders" do
       described_class.generating_hash!
       expect(described_class).to be_generating_hash

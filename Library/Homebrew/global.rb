@@ -3,17 +3,7 @@
 
 require_relative "startup"
 
-require "English"
-require "fileutils"
-require "json"
-require "json/add/exception"
-require "forwardable"
-require "set"
-
-require "extend/array"
-require "extend/blank"
-require "extend/enumerable"
-require "extend/string"
+HOMEBREW_HELP_MESSAGE = ENV.fetch("HOMEBREW_HELP_MESSAGE").freeze
 
 HOMEBREW_API_DEFAULT_DOMAIN = ENV.fetch("HOMEBREW_API_DEFAULT_DOMAIN").freeze
 HOMEBREW_BOTTLE_DEFAULT_DOMAIN = ENV.fetch("HOMEBREW_BOTTLE_DEFAULT_DOMAIN").freeze
@@ -66,11 +56,6 @@ HOMEBREW_PULL_OR_COMMIT_URL_REGEX =
   %r[https://github\.com/([\w-]+)/([\w-]+)?/(?:pull/(\d+)|commit/[0-9a-fA-F]{4,40})]
 HOMEBREW_BOTTLES_EXTNAME_REGEX = /\.([a-z0-9_]+)\.bottle\.(?:(\d+)\.)?tar\.gz$/
 
-require "env_config"
-require "macos_version"
-require "os"
-require "messages"
-
 module Homebrew
   extend FileUtils
 
@@ -84,6 +69,10 @@ module Homebrew
   class << self
     attr_writer :failed, :raise_deprecation_exceptions, :auditing
 
+    # Check whether Homebrew is using the default prefix.
+    #
+    # @api internal
+    sig { params(prefix: T.any(Pathname, String)).returns(T::Boolean) }
     def default_prefix?(prefix = HOMEBREW_PREFIX)
       prefix.to_s == DEFAULT_PREFIX
     end
@@ -106,8 +95,8 @@ module Homebrew
     end
 
     def running_as_root?
-      @process_uid ||= Process.uid
-      @process_uid.zero?
+      @process_euid ||= Process.euid
+      @process_euid.zero?
     end
 
     def owner_uid
@@ -124,13 +113,7 @@ module Homebrew
   end
 end
 
-require "context"
-require "git_repository"
-require "extend/pathname"
-require "cli/args"
-
 require "PATH"
-
 ENV["HOMEBREW_PATH"] ||= ENV.fetch("PATH")
 ORIGINAL_PATHS = PATH.new(ENV.fetch("HOMEBREW_PATH")).filter_map do |p|
   Pathname.new(p).expand_path
@@ -138,9 +121,17 @@ rescue
   nil
 end.freeze
 
-require "exceptions"
-require "utils"
+require "extend/blank"
+require "extend/kernel"
+require "os"
 
-require "official_taps"
-require "tap"
+require "extend/array"
+require "extend/cachable"
+require "extend/enumerable"
+require "extend/string"
+require "extend/pathname"
+
+require "exceptions"
+
 require "tap_constants"
+require "official_taps"

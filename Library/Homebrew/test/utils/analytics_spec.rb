@@ -4,10 +4,6 @@ require "utils/analytics"
 require "formula_installer"
 
 RSpec.describe Utils::Analytics do
-  before do
-    described_class.clear_cache
-  end
-
   describe "::default_package_tags" do
     let(:ci) { ", CI" if ENV["CI"] }
 
@@ -145,6 +141,45 @@ RSpec.describe Utils::Analytics do
         expect(described_class).not_to receive(:report_package_event)
         described_class.report_build_error(err)
       end
+    end
+  end
+
+  describe "::report_command_run" do
+    let(:command) { "audit" }
+    let(:options) { "--tap=" }
+    let(:command_instance) do
+      require "dev-cmd/audit"
+      Homebrew::DevCmd::Audit.new(["--tap=homebrew/core"])
+    end
+
+    it "passes to the influxdb method" do
+      ENV.delete("HOMEBREW_NO_ANALYTICS_THIS_RUN")
+      ENV.delete("HOMEBREW_NO_ANALYTICS")
+      ENV["HOMEBREW_ANALYTICS_DEBUG"] = "true"
+      expect(described_class).to receive(:report_influx).with(
+        :command_run,
+        hash_including(command:),
+        hash_including(options:),
+      ).once
+      described_class.report_command_run(command_instance)
+    end
+  end
+
+  describe "::report_test_bot_test" do
+    let(:command) { "install wget" }
+    let(:passed) { true }
+
+    it "passes to the influxdb method" do
+      ENV.delete("HOMEBREW_NO_ANALYTICS_THIS_RUN")
+      ENV.delete("HOMEBREW_NO_ANALYTICS")
+      ENV["HOMEBREW_ANALYTICS_DEBUG"] = "true"
+      ENV["HOMEBREW_TEST_BOT_ANALYTICS"] = "true"
+      expect(described_class).to receive(:report_influx).with(
+        :test_bot_test,
+        hash_including(passed:),
+        hash_including(command:),
+      ).once
+      described_class.report_test_bot_test(command, passed)
     end
   end
 

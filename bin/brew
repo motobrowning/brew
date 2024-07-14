@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 set -u
 
 # Fail fast with concise message when not using bash
@@ -36,6 +36,12 @@ then
   exit 1
 fi
 
+# Reset sudo timestamp to avoid running unauthorized sudo commands
+if command -v sudo >/dev/null
+then
+  sudo --reset-timestamp
+fi
+
 quiet_cd() {
   CDPATH='' cd -- "$@" &>/dev/null || return
 }
@@ -57,6 +63,12 @@ do
 done
 unset cmd
 
+# Take the HOMEBREW_PATH if we are running brew within brew, otherwise we would lose the original path.
+if [[ -n "${HOMEBREW_BREW_FILE:-}" && -n "${HOMEBREW_PATH:-}" ]]
+then
+  PATH="${HOMEBREW_PATH}"
+fi
+
 BREW_FILE_DIRECTORY="$(quiet_cd "${0%/*}/" && pwd -P)"
 HOMEBREW_BREW_FILE="${BREW_FILE_DIRECTORY%/}/${0##*/}"
 HOMEBREW_PREFIX="${HOMEBREW_BREW_FILE%/*/*}"
@@ -76,7 +88,7 @@ then
   HOMEBREW_REPOSITORY="${BREW_FILE_DIRECTORY%/*}"
 fi
 
-# Try to find a /usr/local HOMEBREW_PREFIX where possible (for bottles)
+# Try to find a /usr/local HOMEBREW_PREFIX where possible (for macOS x86_64 bottles)
 if [[ -L "/usr/local/bin/brew" && ! -L "${HOMEBREW_PREFIX}/Cellar" ]]
 then
   USR_LOCAL_BREW_FILE_DIRECTORY="$(symlink_target_directory "/usr/local/bin/brew" "/usr/local/bin")"
@@ -144,6 +156,7 @@ MANPAGE_VARS=(
   BAT_CONFIG_PATH
   BAT_THEME
   BROWSER
+  BUNDLE_USER_CACHE
   DISPLAY
   EDITOR
   NO_COLOR
@@ -173,6 +186,7 @@ USED_BY_HOMEBREW_VARS=(
   TMUX
   XDG_CACHE_HOME
   XDG_RUNTIME_DIR
+  ZDOTDIR
 )
 for VAR in "${USED_BY_HOMEBREW_VARS[@]}"
 do
@@ -245,4 +259,4 @@ then
 fi
 unset VAR ENV_VAR_NAMES
 
-exec /usr/bin/env -i "${FILTERED_ENV[@]}" /bin/bash "${HOMEBREW_LIBRARY}/Homebrew/brew.sh" "$@"
+exec /usr/bin/env -i "${FILTERED_ENV[@]}" /bin/bash -p "${HOMEBREW_LIBRARY}/Homebrew/brew.sh" "$@"

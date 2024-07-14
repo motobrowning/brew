@@ -6,8 +6,6 @@ require "rubocops/shared/helper_functions"
 module RuboCop
   module Cop
     # Abstract base class for all formula cops.
-    #
-    # @api private
     class FormulaCop < Base
       extend T::Helpers
       include RangeHelp
@@ -18,30 +16,29 @@ module RuboCop
 
       attr_accessor :file_path
 
-      @registry = Cop.registry
+      @registry = Registry.global
+
+      class FormulaNodes < T::Struct
+        prop :node, RuboCop::AST::ClassNode
+        prop :class_node, RuboCop::AST::ConstNode
+        prop :parent_class_node, RuboCop::AST::ConstNode
+        prop :body_node, RuboCop::AST::Node
+      end
 
       # This method is called by RuboCop and is the main entry point.
       def on_class(node)
-        @file_path = processed_source.buffer.name
+        @file_path = processed_source.file_path
         return unless file_path_allowed?
         return unless formula_class?(node)
 
         class_node, parent_class_node, @body = *node
         @formula_name = Pathname.new(@file_path).basename(".rb").to_s
         @tap_style_exceptions = nil
-        audit_formula(node, class_node, parent_class_node, @body)
+        audit_formula(FormulaNodes.new(node:, class_node:, parent_class_node:, body_node: @body))
       end
 
-      sig {
-        abstract
-          .params(
-            node:              RuboCop::AST::ClassNode,
-            class_node:        RuboCop::AST::ConstNode,
-            parent_class_node: RuboCop::AST::ConstNode,
-            body_node:         RuboCop::AST::Node,
-          ).void
-      }
-      def audit_formula(node, class_node, parent_class_node, body_node); end
+      sig { abstract.params(formula_nodes: FormulaNodes).void }
+      def audit_formula(formula_nodes); end
 
       # Yields to block when there is a match.
       #
@@ -230,10 +227,9 @@ module RuboCop
       end
 
       def file_path_allowed?
-        paths_to_exclude = [%r{/Library/Homebrew/test/}]
         return true if @file_path.nil? # file_path is nil when source is directly passed to the cop, e.g. in specs
 
-        !@file_path.match?(Regexp.union(paths_to_exclude))
+        !@file_path.include?("/Library/Homebrew/test/")
       end
 
       def on_system_methods

@@ -220,11 +220,43 @@ RSpec.describe Cask::Audit, :cask do
         end
       end
 
-      context "when cask token has @" do
-        let(:cask_token) { "app@stuff" }
+      context "when cask token is @-versioned with number" do
+        let(:cask_token) { "app@10" }
+
+        it "does not fail" do
+          expect(run).to pass
+        end
+      end
+
+      context "when cask token is @-versioned with word" do
+        let(:cask_token) { "app@beta" }
+
+        it "does not fail" do
+          expect(run).to pass
+        end
+      end
+
+      context "when cask token has multiple @" do
+        let(:cask_token) { "app@stuff@beta" }
 
         it "fails" do
-          expect(run).to error_with(/@ should be replaced by -at-/)
+          expect(run).to error_with(/@ unrelated to versioning should be replaced by -at-/)
+        end
+      end
+
+      context "when cask token has a hyphen followed by @" do
+        let(:cask_token) { "app-@beta" }
+
+        it "fails" do
+          expect(run).to error_with(/should not contain a hyphen followed by @/)
+        end
+      end
+
+      context "when cask token has @ followed by a hyphen" do
+        let(:cask_token) { "app@-beta" }
+
+        it "fails" do
+          expect(run).to error_with(/should not contain @ followed by a hyphen/)
         end
       end
 
@@ -248,7 +280,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app(stuff)" }
 
         it "fails" do
-          expect(run).to error_with(/alphanumeric characters and hyphens/)
+          expect(run).to error_with(/alphanumeric characters, hyphens and @/)
         end
       end
 
@@ -300,22 +332,6 @@ RSpec.describe Cask::Audit, :cask do
 
         it "fails" do
           expect(run).to error_with(/token contains .app/)
-        end
-      end
-
-      context "when cask token contains version designation" do
-        let(:cask_token) { "token-beta" }
-
-        it "fails if the cask is from an official tap" do
-          allow(cask).to receive(:tap).and_return(CoreCaskTap.instance)
-
-          expect(run).to error_with(/token contains version designation/)
-        end
-
-        it "does not fail if the cask is from the `cask-versions` tap" do
-          allow(cask).to receive(:tap).and_return(Tap.fetch("homebrew/cask-versions"))
-
-          expect(run).to pass
         end
       end
 
@@ -916,17 +932,21 @@ RSpec.describe Cask::Audit, :cask do
 
         it { is_expected.not_to error_with(message) }
       end
+    end
 
-      context "with incorrect OSDN URL format" do
-        let(:cask_token) { "osdn-incorrect-url-format" }
+    describe "disable OSDN download url" do
+      let(:only) { ["download_url_is_osdn"] }
+      let(:message) { /OSDN download urls are disabled./ }
+      let(:cask_token) { "osdn-urls" }
 
-        it { is_expected.to error_with(message) }
+      context "when --strict is not passed" do
+        it { is_expected.not_to error_with(message) }
       end
 
-      context "with correct OSDN URL format" do
-        let(:cask_token) { "osdn-correct-url-format" }
+      context "when --strict is passed" do
+        let(:strict) { true }
 
-        it { is_expected.not_to error_with(message) }
+        it { is_expected.to error_with(message) }
       end
     end
 

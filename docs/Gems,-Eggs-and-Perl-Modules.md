@@ -1,14 +1,13 @@
 # Gems, Eggs and Perl Modules
 
-On a fresh macOS installation there are three empty directories for
+On a fresh macOS installation there are two empty directories for
 add-ons available to all users:
 
 * `/Library/Ruby`
-* `/Library/Python`
 * `/Library/Perl`
 
-You need sudo to install to these like so: `sudo gem install`,
-`sudo easy_install` or `sudo cpan -i`.
+You need sudo to install to these like so: `sudo gem install`
+or `sudo cpan -i`.
 
 ## Python packages (eggs) without sudo using system Python
 
@@ -129,7 +128,7 @@ subdirectories will be in your `PATH` and `PERL5LIB`.
 
 ### Avoiding sudo altogether for Perl
 
-If you don’t even want (or can’t) use sudo for bootstrapping
+If you don’t even want to (or can’t) use sudo for bootstrapping
 `local::lib`, just manually install `local::lib` in
 `~/perl5` and add the relevant path to `PERL5LIB` before the `.bashrc` eval incantation.
 

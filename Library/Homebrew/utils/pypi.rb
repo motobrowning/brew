@@ -2,8 +2,6 @@
 # frozen_string_literal: true
 
 # Helper functions for updating PyPI resources.
-#
-# @api private
 module PyPI
   PYTHONHOSTED_URL_PREFIX = "https://files.pythonhosted.org/packages/"
   private_constant :PYTHONHOSTED_URL_PREFIX
@@ -11,7 +9,6 @@ module PyPI
   # Represents a Python package.
   # This package can be a PyPI package (either by name/version or PyPI distribution URL),
   # or it can be a non-PyPI URL.
-  # @api private
   class Package
     sig { params(package_string: String, is_url: T::Boolean, python_name: String).void }
     def initialize(package_string, is_url: false, python_name: "python")
@@ -52,7 +49,7 @@ module PyPI
       @is_pypi_url || !@is_url
     end
 
-    # Get name, URL, SHA-256 checksum, and latest version for a given package.
+    # Get name, URL, SHA-256 checksum and latest version for a given package.
     # This only works for packages from PyPI or from a PyPI URL; packages
     # derived from non-PyPI URLs will produce `nil` here.
     sig { params(new_version: T.nilable(T.any(String, Version))).returns(T.nilable(T::Array[String])) }
@@ -76,12 +73,22 @@ module PyPI
         return
       end
 
-      sdist = json["urls"].find { |url| url["packagetype"] == "sdist" }
-      return if sdist.nil?
+      dist = json["urls"].find do |url|
+        url["packagetype"] == "sdist"
+      end
+
+      # If there isn't an sdist, we use the first universal wheel.
+      if dist.nil?
+        dist = json["urls"].find do |url|
+          url["filename"].end_with?("-none-any.whl")
+        end
+      end
+
+      return if dist.nil?
 
       @pypi_info = [
-        PyPI.normalize_python_package(json["info"]["name"]), sdist["url"],
-        sdist["digests"]["sha256"], json["info"]["version"]
+        PyPI.normalize_python_package(json["info"]["name"]), dist["url"],
+        dist["digests"]["sha256"], json["info"]["version"]
       ]
     end
 
@@ -370,7 +377,18 @@ module PyPI
       new_resource_blocks += "  def install"
     else
       # Replace existing resource blocks with new resource blocks
-      inreplace_regex = /  (resource .* do\s+url .*\s+sha256 .*\s+ end\s*)+/
+      inreplace_regex = /
+        \ \ (
+        resource\ .*\ do\s+
+          url\ .*\s+
+          sha256\ .*\s+
+          ((\#.*\s+)*
+          patch\ (.*\ )?do\s+
+            url\ .*\s+
+            sha256\ .*\s+
+          end\s+)*
+        end\s+)+
+      /x
       new_resource_blocks += "  "
     end
 

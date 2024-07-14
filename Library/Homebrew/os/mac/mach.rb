@@ -4,8 +4,6 @@
 require "macho"
 
 # {Pathname} extension for dealing with Mach-O files.
-#
-# @api private
 module MachOShim
   extend Forwardable
 
@@ -88,9 +86,10 @@ module MachOShim
   end
 
   def dynamically_linked_libraries(except: :none, resolve_variable_references: true)
-    lcs = macho.dylib_load_commands.reject { |lc| lc.type == except }
+    lcs = macho.dylib_load_commands
+    lcs.reject! { |lc| lc.flag?(except) } if except != :none
     names = lcs.map { |lc| lc.name.to_s }.uniq
-    names.map!(&method(:resolve_variable_name)) if resolve_variable_references
+    names.map! { resolve_variable_name(_1) } if resolve_variable_references
 
     names
   end

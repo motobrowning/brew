@@ -6,8 +6,6 @@ require "cask/artifact/relocated"
 module Cask
   module Artifact
     # Superclass for all artifacts which are installed by symlinking them to the target location.
-    #
-    # @api private
     class Symlinked < Relocated
       sig { returns(String) }
       def self.link_type_english_name
@@ -43,7 +41,7 @@ module Cask
 
       private
 
-      def link(force: false, command: nil, **_options)
+      def link(force: false, adopt: false, command: nil, **_options)
         unless source.exist?
           raise CaskError,
                 "It seems the #{self.class.link_type_english_name.downcase} " \
@@ -54,7 +52,7 @@ module Cask
           message = "It seems there is already #{self.class.english_article} " \
                     "#{self.class.english_name} at '#{target}'"
 
-          if force && target.symlink? &&
+          if (force || adopt) && target.symlink? &&
              (target.realpath == source.realpath || target.realpath.to_s.start_with?("#{cask.caskroom_path}/"))
             opoo "#{message}; overwriting."
             Utils.gain_permissions_remove(target, command:)

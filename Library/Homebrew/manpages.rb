@@ -9,8 +9,6 @@ TARGET_MAN_PATH = (HOMEBREW_REPOSITORY/"manpages").freeze
 TARGET_DOC_PATH = (HOMEBREW_REPOSITORY/"docs").freeze
 module Homebrew
   # Helper functions for generating homebrew manual.
-  #
-  # @api private
   module Manpages
     Variables = Struct.new(
       :alumni,
@@ -28,11 +26,22 @@ module Homebrew
     )
 
     def self.regenerate_man_pages(quiet:)
-      Homebrew.install_bundler_gems!(groups: ["man"])
+      require "kramdown"
+      require "manpages/parser/ronn"
+      require "manpages/converter/kramdown"
+      require "manpages/converter/roff"
 
       markup = build_man_page(quiet:)
-      convert_man_page(markup, TARGET_DOC_PATH/"Manpage.md")
-      convert_man_page(markup, TARGET_MAN_PATH/"brew.1")
+      root, warnings = Parser::Ronn.parse(markup)
+      $stderr.puts(warnings)
+
+      roff, warnings = Converter::Kramdown.convert(root)
+      $stderr.puts(warnings)
+      File.write(TARGET_DOC_PATH/"Manpage.md", roff)
+
+      roff, warnings = Converter::Roff.convert(root)
+      $stderr.puts(warnings)
+      File.write(TARGET_MAN_PATH/"brew.1", roff)
     end
 
     def self.build_man_page(quiet:)
@@ -65,72 +74,21 @@ module Homebrew
       path.basename.to_s.sub(/\.(rb|sh)$/, "").sub(/^--/, "~~")
     end
 
-    def self.convert_man_page(markup, target)
-      manual = target.basename(".1")
-      organisation = "Homebrew"
-
-      # Set the manpage date to the existing one if we're updating.
-      # This avoids the only change being e.g. a new date.
-      date = if target.extname == ".1" && target.exist?
-        /"(\d{1,2})" "([A-Z][a-z]+) (\d{4})" "#{organisation}" "#{manual}"/ =~ target.read
-        Date.parse("#{Regexp.last_match(1)} #{Regexp.last_match(2)} #{Regexp.last_match(3)}")
-      else
-        Date.today
-      end
-      date = date.strftime("%Y-%m-%d")
-
-      shared_args = %W[
-        --pipe
-        --organization=#{organisation}
-        --manual=#{target.basename(".1")}
-        --date=#{date}
-      ]
-
-      format_flag, format_desc = target_path_to_format(target)
-
-      puts "Writing #{format_desc} to #{target}"
-      Utils.popen(["ronn", format_flag] + shared_args, "rb+") do |ronn|
-        ronn.write markup
-        ronn.close_write
-        ronn_output = ronn.read
-        odie "Got no output from ronn!" if ronn_output.blank?
-        ronn_output = case format_flag
-        when "--markdown"
-          ronn_output.gsub(%r{<var>(.*?)</var>}, "*`\\1`*")
-                     .gsub(/\n\n\n+/, "\n\n")
-                     .gsub(/^(- `[^`]+`):/, "\\1") # drop trailing colons from definition lists
-                     .gsub(/(?<=\n\n)([\[`].+):\n/, "\\1\n<br>") # replace colons with <br> on subcommands
-        when "--roff"
-          ronn_output.gsub(%r{<code>(.*?)</code>}, "\\fB\\1\\fR")
-                     .gsub(%r{<var>(.*?)</var>}, "\\fI\\1\\fR")
-                     .gsub(/(^\[?\\fB.+): /, "\\1\n    ")
-        end
-        target.atomic_write ronn_output
-      end
-    end
-
-    def self.target_path_to_format(target)
-      case target.basename
-      when /\.md$/    then ["--markdown", "markdown"]
-      when /\.\d$/    then ["--roff", "man page"]
-      else
-        odie "Failed to infer output format from '#{target.basename}'."
-      end
-    end
-
     def self.generate_cmd_manpages(cmd_paths)
       man_page_lines = []
 
       # preserve existing manpage order
-      cmd_paths.sort_by(&method(:sort_key_for_path))
+      cmd_paths.sort_by { sort_key_for_path(_1) }
                .each do |cmd_path|
         cmd_man_page_lines = if (cmd_parser = Homebrew::CLI::Parser.from_cmd_path(cmd_path))
           next if cmd_parser.hide_from_man_page
 
           cmd_parser_manpage_lines(cmd_parser).join
         else
-          cmd_comment_manpage_lines(cmd_path)
+          cmd_comment_manpage_lines(cmd_path)&.join("\n")
         end
+        # Convert subcommands to definition lists
+        cmd_man_page_lines&.gsub!(/(?<=\n\n)([\\?\[`].+):\n/, "\\1\n\n: ")
 
         man_page_lines << cmd_man_page_lines
       end
@@ -173,8 +131,10 @@ module Homebrew
         next if line.match?(/--(debug|help|quiet|verbose) /)
 
         # Format one option or a comma-separated pair of short and long options.
-        lines << line.gsub(/^ +(-+[a-z-]+), (-+[a-z-]+) +/, "* `\\1`, `\\2`:\n  ")
-                     .gsub(/^ +(-+[a-z-]+) +/, "* `\\1`:\n  ")
+        line.gsub!(/^ +(-+[a-z-]+), (-+[a-z-]+) +(.*)$/, "`\\1`, `\\2`\n\n: \\3\n")
+        line.gsub!(/^ +(-+[a-z-]+) +(.*)$/, "`\\1`\n\n: \\2\n")
+
+        lines << line
       end
       lines.last << "\n"
       lines
@@ -182,7 +142,7 @@ module Homebrew
 
     sig { returns(String) }
     def self.global_cask_options_manpage
-      lines = ["These options are applicable to the `install`, `reinstall`, and `upgrade` " \
+      lines = ["These options are applicable to the `install`, `reinstall` and `upgrade` " \
                "subcommands with the `--cask` switch.\n"]
       lines += Homebrew::CLI::Parser.global_cask_options.map do |_, long, kwargs|
         generate_option_doc(nil, long.chomp("="), kwargs.fetch(:description))
@@ -202,10 +162,10 @@ module Homebrew
     sig { returns(String) }
     def self.env_vars_manpage
       lines = Homebrew::EnvConfig::ENVS.flat_map do |env, hash|
-        entry = "- `#{env}`:\n  <br>#{hash[:description]}\n"
+        entry = "`#{env}`\n\n: #{hash[:description]}\n"
         default = hash[:default_text]
         default ||= "`#{hash[:default]}`." if hash[:default]
-        entry += "\n\n  *Default:* #{default}\n" if default
+        entry += "\n\n    *Default:* #{default}\n" if default
 
         entry
       end
@@ -219,13 +179,16 @@ module Homebrew
     def self.generate_option_doc(short, long, desc)
       comma = (short && long) ? ", " : ""
       <<~EOS
-        * #{format_opt(short)}#{comma}#{format_opt(long)}:
-          #{desc}
+        #{format_opt(short)}#{comma}#{format_opt(long)}
+
+        : #{desc}
+
       EOS
     end
 
     def self.format_usage_banner(usage_banner)
       usage_banner&.sub(/^(#: *\* )?/, "### ")
+                  &.gsub(/(?<!`)\[([^\[\]]*)\](?!`)/, "\\[\\1\\]") # escape [] character (except those in code spans)
     end
   end
 end

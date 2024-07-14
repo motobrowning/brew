@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "rubocops/extend/formula_cop"
@@ -14,16 +14,15 @@ module RuboCop
       # - `stable do` should not be present without a `head` spec
       # - `stable do` should not be present with only `url|checksum|mirror|version`
       # - `head do` should not be present with only `url`
-      #
-      # @api private
       class ComponentsRedundancy < FormulaCop
         HEAD_MSG = "`head` and `head do` should not be simultaneously present"
         BOTTLE_MSG = "`bottle :modifier` and `bottle do` should not be simultaneously present"
         STABLE_MSG = "`stable do` should not be present without a `head` spec"
         STABLE_BLOCK_METHODS = [:url, :sha256, :mirror, :version].freeze
 
-        def audit_formula(_node, _class_node, _parent_class_node, body_node)
-          return if body_node.nil?
+        sig { override.params(formula_nodes: FormulaNodes).void }
+        def audit_formula(formula_nodes)
+          return if (body_node = formula_nodes.body_node).nil?
 
           urls = find_method_calls_by_name(body_node, :url)
 

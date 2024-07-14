@@ -7,8 +7,6 @@ require "lock_file"
 require "extend/cachable"
 
 # Installation prefix of a formula.
-#
-# @api private
 class Keg
   extend Cachable
 
@@ -155,9 +153,10 @@ class Keg
   extend Forwardable
 
   def_delegators :path,
-                 :to_s, :hash, :abv, :disk_usage, :file_count, :directory?, :exist?, :/,
+                 :to_path, :hash, :abv, :disk_usage, :file_count, :directory?, :exist?, :/,
                  :join, :rename, :find
 
+  sig { params(path: Pathname).void }
   def initialize(path)
     path = path.resolved_path if path.to_s.start_with?("#{HOMEBREW_PREFIX}/opt/")
     raise "#{path} is not a valid keg" if path.parent.parent.realpath != HOMEBREW_CELLAR.realpath
@@ -175,7 +174,8 @@ class Keg
     path.parent
   end
 
-  alias to_path to_s
+  sig { returns(String) }
+  def to_s = path.to_s
 
   sig { returns(String) }
   def inspect
@@ -193,6 +193,8 @@ class Keg
       return false if file.directory? && !file.children.reject(&:ds_store?).empty?
 
       basename = file.basename.to_s
+
+      require "metafiles"
       next if Metafiles.copy?(basename)
       next if %w[.DS_Store INSTALL_RECEIPT.json].include?(basename)
 
@@ -361,15 +363,6 @@ class Keg
     !Dir["#{path}/*.plist"].empty?
   end
 
-  def python_site_packages_installed?
-    (path/"lib/python2.7/site-packages").directory?
-  end
-
-  sig { returns(T::Boolean) }
-  def python_pth_files_installed?
-    !Dir["#{path}/lib/python2.7/site-packages/*.pth"].empty?
-  end
-
   sig { returns(T::Array[Pathname]) }
   def apps
     app_prefix = optlinked? ? opt_record : path
@@ -385,6 +378,16 @@ class Keg
   def version
     require "pkg_version"
     PkgVersion.parse(path.basename.to_s)
+  end
+
+  def version_scheme
+    @version_scheme ||= tab.version_scheme
+  end
+
+  # For ordering kegs by version with `.sort_by`, `.max_by`, etc.
+  # @see Formula.version_scheme
+  def scheme_and_version
+    [version_scheme, version]
   end
 
   def to_formula
@@ -415,7 +418,14 @@ class Keg
     link_dir("etc", verbose:, dry_run:, overwrite:) { :mkpath }
     link_dir("bin", verbose:, dry_run:, overwrite:) { :skip_dir }
     link_dir("sbin", verbose:, dry_run:, overwrite:) { :skip_dir }
-    link_dir("include", verbose:, dry_run:, overwrite:) { :link }
+    link_dir("include", verbose:, dry_run:, overwrite:) do |relative_path|
+      case relative_path.to_s
+      when /^postgresql@\d+/
+        :mkpath
+      else
+        :link
+      end
+    end
 
     link_dir("share", verbose:, dry_run:, overwrite:) do |relative_path|
       case relative_path.to_s
@@ -429,6 +439,7 @@ class Keg
            /^fish/,
            %r{^lua/}, #  Lua, Lua51, Lua53 all need the same handling.
            %r{^guile/},
+           /^postgresql@\d+/,
            *SHARE_PATHS
         :mkpath
       else
@@ -452,6 +463,7 @@ class Keg
            /^ocaml/,
            /^perl5/,
            "php",
+           /^postgresql@\d+/,
            /^python[23]\.\d+/,
            /^R/,
            /^ruby/
@@ -495,6 +507,7 @@ class Keg
     end
   end
 
+  sig { returns(Tab) }
   def tab
     Tab.for_keg(self)
   end
@@ -541,8 +554,8 @@ class Keg
 
     src = dst.resolved_path
 
-    # src itself may be a symlink, so check lstat to ensure we are dealing with
-    # a directory, and not a symlink pointing at a directory (which needs to be
+    # `src` itself may be a symlink, so check lstat to ensure we are dealing with
+    # a directory and not a symlink pointing to a directory (which needs to be
     # treated as a file). In other words, we only want to resolve one symlink.
 
     begin

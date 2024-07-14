@@ -6,19 +6,21 @@ raise "#{__FILE__} must not be loaded via `require`." if $PROGRAM_NAME != __FILE
 old_trap = trap("INT") { exit! 130 }
 
 require_relative "global"
+
 require "fcntl"
 require "socket"
 require "cli/parser"
 require "cmd/postinstall"
+require "json/add/exception"
 
 begin
-  args = Homebrew.postinstall_args.parse
+  args = Homebrew::Cmd::Postinstall.new.args
   error_pipe = UNIXSocket.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
   error_pipe.fcntl(Fcntl::F_SETFD, Fcntl::FD_CLOEXEC)
 
   trap("INT", old_trap)
 
-  formula = args.named.to_resolved_formulae.first
+  formula = T.must(args.named.to_resolved_formulae.first)
   if args.debug?
     require "debrew"
     formula.extend(Debrew::Formula)

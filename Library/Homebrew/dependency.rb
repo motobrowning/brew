@@ -5,13 +5,17 @@ require "dependable"
 
 # A dependency on another Homebrew formula.
 #
-# @api private
+# @api internal
 class Dependency
   extend Forwardable
   include Dependable
   extend Cachable
 
-  attr_reader :name, :tap
+  sig { returns(String) }
+  attr_reader :name
+
+  sig { returns(T.nilable(Tap)) }
+  attr_reader :tap
 
   def initialize(name, tags = [])
     raise ArgumentError, "Dependency must have a name!" unless name
@@ -22,10 +26,6 @@ class Dependency
     return unless (tap_with_name = Tap.with_formula_name(name))
 
     @tap, = tap_with_name
-  end
-
-  def to_s
-    name
   end
 
   def ==(other)
@@ -97,6 +97,9 @@ class Dependency
   end
 
   sig { returns(String) }
+  def to_s = name
+
+  sig { returns(String) }
   def inspect
     "#<#{self.class.name}: #{name.inspect} #{tags.inspect}>"
   end
@@ -112,6 +115,8 @@ class Dependency
     # the list.
     # The default filter, which is applied when a block is not given, omits
     # optionals and recommends based on what the dependent has asked for
+    #
+    # @api internal
     def expand(dependent, deps = dependent.deps, cache_key: nil, &block)
       # Keep track dependencies to avoid infinite cyclic dependency recursion.
       @expand_stack ||= []
@@ -178,6 +183,8 @@ class Dependency
     end
 
     # Keep a dependency, but prune its dependencies.
+    #
+    # @api internal
     sig { void }
     def keep_but_prune_recursive_deps
       throw(:action, :keep_but_prune_recursive_deps)
@@ -249,7 +256,7 @@ class UsesFromMacOSDependency < Dependency
 
   sig { params(minimum_version: T.nilable(Version), minimum_revision: T.nilable(Integer)).returns(T::Boolean) }
   def installed?(minimum_version: nil, minimum_revision: nil)
-    use_macos_install? || super(minimum_version:, minimum_revision:)
+    use_macos_install? || super
   end
 
   sig { returns(T::Boolean) }

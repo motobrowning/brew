@@ -7,8 +7,6 @@ require "extend/hash/keys"
 module Cask
   module Artifact
     # Artifact corresponding to the `installer` stanza.
-    #
-    # @api private
     class Installer < AbstractArtifact
       VALID_KEYS = Set.new([
         :manual,
@@ -71,7 +69,7 @@ module Cask
       attr_reader :path, :args
 
       def initialize(cask, **args)
-        super(cask, **args)
+        super
 
         if args.key?(:manual)
           @path = Pathname(args[:manual])

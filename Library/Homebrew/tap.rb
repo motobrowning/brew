@@ -2,32 +2,38 @@
 # frozen_string_literal: true
 
 require "commands"
-require "completions"
-require "extend/cachable"
-require "description_cache_store"
 require "settings"
 
 # A {Tap} is used to extend the formulae provided by Homebrew core.
 # Usually, it's synced with a remote Git repository. And it's likely
-# a GitHub repository with the name of `user/homebrew-repo`. In such
-# cases, `user/repo` will be used as the {#name} of this {Tap}, where
-# {#user} represents the GitHub username and {#repo} represents the repository
-# name without the leading `homebrew-`.
+# a GitHub repository with the name of `user/homebrew-repository`. In such
+# cases, `user/repository` will be used as the {#name} of this {Tap}, where
+# {#user} represents the GitHub username and {#repository} represents the
+# repository name without the leading `homebrew-`.
 class Tap
   extend Cachable
 
   TAP_DIRECTORY = (HOMEBREW_LIBRARY/"Taps").freeze
 
   HOMEBREW_TAP_CASK_RENAMES_FILE = "cask_renames.json"
+  private_constant :HOMEBREW_TAP_CASK_RENAMES_FILE
   HOMEBREW_TAP_FORMULA_RENAMES_FILE = "formula_renames.json"
+  private_constant :HOMEBREW_TAP_FORMULA_RENAMES_FILE
   HOMEBREW_TAP_MIGRATIONS_FILE = "tap_migrations.json"
+  private_constant :HOMEBREW_TAP_MIGRATIONS_FILE
   HOMEBREW_TAP_AUTOBUMP_FILE = ".github/autobump.txt"
+  private_constant :HOMEBREW_TAP_AUTOBUMP_FILE
   HOMEBREW_TAP_PYPI_FORMULA_MAPPINGS_FILE = "pypi_formula_mappings.json"
+  private_constant :HOMEBREW_TAP_PYPI_FORMULA_MAPPINGS_FILE
   HOMEBREW_TAP_SYNCED_VERSIONS_FORMULAE_FILE = "synced_versions_formulae.json"
+  private_constant :HOMEBREW_TAP_SYNCED_VERSIONS_FORMULAE_FILE
   HOMEBREW_TAP_AUDIT_EXCEPTIONS_DIR = "audit_exceptions"
+  private_constant :HOMEBREW_TAP_AUDIT_EXCEPTIONS_DIR
   HOMEBREW_TAP_STYLE_EXCEPTIONS_DIR = "style_exceptions"
+  private_constant :HOMEBREW_TAP_STYLE_EXCEPTIONS_DIR
 
   TAP_MIGRATIONS_STALE_SECONDS = 86400 # 1 day
+  private_constant :TAP_MIGRATIONS_STALE_SECONDS
 
   HOMEBREW_TAP_JSON_FILES = %W[
     #{HOMEBREW_TAP_FORMULA_RENAMES_FILE}
@@ -39,12 +45,17 @@ class Tap
     #{HOMEBREW_TAP_STYLE_EXCEPTIONS_DIR}/*.json
   ].freeze
 
+  class InvalidNameError < ArgumentError; end
+
+  # Fetch a {Tap} by name.
+  #
+  # @api public
   sig { params(user: String, repo: String).returns(Tap) }
   def self.fetch(user, repo = T.unsafe(nil))
     user, repo = user.split("/", 2) if repo.nil?
 
     if [user, repo].any? { |part| part.nil? || part.include?("/") }
-      raise ArgumentError, "Invalid tap name: '#{[*user, *repo].join("/")}'"
+      raise InvalidNameError, "Invalid tap name: '#{[*user, *repo].join("/")}'"
     end
 
     user = T.must(user)
@@ -61,6 +72,9 @@ class Tap
     cache.fetch(cache_key) { |key| cache[key] = new(user, repo) }
   end
 
+  # Get a {Tap} from its path or a path inside of it.
+  #
+  # @api public
   def self.from_path(path)
     match = File.expand_path(path).match(HOMEBREW_TAP_PATH_REGEX)
 
@@ -71,7 +85,6 @@ class Tap
     fetch(user, repo)
   end
 
-  # @private
   sig { params(name: String).returns(T.nilable([Tap, String])) }
   def self.with_formula_name(name)
     return unless (match = name.match(HOMEBREW_TAP_FORMULA_REGEX))
@@ -87,7 +100,6 @@ class Tap
     [tap, name.downcase]
   end
 
-  # @private
   sig { params(token: String).returns(T.nilable([Tap, String])) }
   def self.with_cask_token(token)
     return unless (match = token.match(HOMEBREW_TAP_CASK_REGEX))
@@ -103,65 +115,99 @@ class Tap
     [tap, token.downcase]
   end
 
-  sig { returns(CoreCaskTap) }
-  def self.default_cask_tap
-    odisabled "`Tap.default_cask_tap`", "`CoreCaskTap.instance`"
+  sig { returns(T::Set[Tap]) }
+  def self.allowed_taps
+    cache_key = :"allowed_taps_#{Homebrew::EnvConfig.allowed_taps.to_s.tr(" ", "_")}"
+    cache[cache_key] ||= begin
+      allowed_tap_list = Homebrew::EnvConfig.allowed_taps.to_s.split
 
-    CoreCaskTap.instance
+      Set.new(allowed_tap_list.filter_map do |tap|
+        Tap.fetch(tap)
+      rescue Tap::InvalidNameError
+        opoo "Invalid tap name in `HOMEBREW_ALLOWED_TAPS`: #{tap}"
+        nil
+      end).freeze
+    end
   end
 
-  sig { params(force: T::Boolean).returns(T::Boolean) }
-  def self.install_default_cask_tap_if_necessary(force: false)
-    odisabled "`Tap.install_default_cask_tap_if_necessary`", "`CoreCaskTap.instance.ensure_installed!`"
+  sig { returns(T::Set[Tap]) }
+  def self.forbidden_taps
+    cache_key = :"forbidden_taps_#{Homebrew::EnvConfig.forbidden_taps.to_s.tr(" ", "_")}"
+    cache[cache_key] ||= begin
+      forbidden_tap_list = Homebrew::EnvConfig.forbidden_taps.to_s.split
 
-    false
+      Set.new(forbidden_tap_list.filter_map do |tap|
+        Tap.fetch(tap)
+      rescue Tap::InvalidNameError
+        opoo "Invalid tap name in `HOMEBREW_FORBIDDEN_TAPS`: #{tap}"
+        nil
+      end).freeze
+    end
   end
 
+  # @api public
   extend Enumerable
 
   # The user name of this {Tap}. Usually, it's the GitHub username of
   # this {Tap}'s remote repository.
+  #
+  # @api public
   attr_reader :user
 
   # The repository name of this {Tap} without the leading `homebrew-`.
-  attr_reader :repo
+  #
+  # @api public
+  attr_reader :repository
+  # odeprecated: use repository instead.
+  alias repo repository
 
-  # The name of this {Tap}. It combines {#user} and {#repo} with a slash.
+  # The name of this {Tap}. It combines {#user} and {#repository} with a slash.
   # {#name} is always in lowercase.
-  # e.g. `user/repo`
+  # e.g. `user/repository`
+  #
+  # @api public
   attr_reader :name
 
+  # @api public
+  sig { returns(String) }
+  def to_s = name
+
   # The full name of this {Tap}, including the `homebrew-` prefix.
-  # It combines {#user} and 'homebrew-'-prefixed {#repo} with a slash.
-  # e.g. `user/homebrew-repo`
+  # It combines {#user} and 'homebrew-'-prefixed {#repository} with a slash.
+  # e.g. `user/homebrew-repository`
+  #
+  # @api public
   attr_reader :full_name
 
   # The local path to this {Tap}.
-  # e.g. `/usr/local/Library/Taps/user/homebrew-repo`
+  # e.g. `/usr/local/Library/Taps/user/homebrew-repository`
+  #
+  # @api public
   sig { returns(Pathname) }
   attr_reader :path
 
   # The git repository of this {Tap}.
   sig { returns(GitRepository) }
-  attr_reader :git_repo
+  attr_reader :git_repository
 
   # Always use `Tap.fetch` instead of `Tap.new`.
   private_class_method :new
 
-  # @private
-  def initialize(user, repo)
+  def initialize(user, repository)
+    require "git_repository"
+
     @user = user
-    @repo = repo
-    @name = "#{@user}/#{@repo}".downcase
-    @full_name = "#{@user}/homebrew-#{@repo}"
+    @repository = repository
+    @name = "#{@user}/#{@repository}".downcase
+    @full_name = "#{@user}/homebrew-#{@repository}"
     @path = TAP_DIRECTORY/@full_name.downcase
-    @git_repo = GitRepository.new(@path)
+    @git_repository = GitRepository.new(@path)
   end
 
   # Clear internal cache.
   def clear_cache
     @remote = nil
-    @repo_var_suffix = nil
+    @repository_var_suffix = nil
     remove_instance_variable(:@private) if instance_variable_defined?(:@private)
 
     @formula_dir = nil
@@ -189,6 +235,7 @@ class Tap
     @command_files = nil
 
     @tap_migrations = nil
+    @reverse_tap_migrations_renames = nil
 
     @audit_exceptions = nil
     @style_exceptions = nil
@@ -207,15 +254,19 @@ class Tap
   end
 
   # The remote path to this {Tap}.
-  # e.g. `https://github.com/user/homebrew-repo`
+  # e.g. `https://github.com/user/homebrew-repository`
+  #
+  # @api public
   def remote
     return default_remote unless installed?
 
-    @remote ||= git_repo.origin_url
+    @remote ||= git_repository.origin_url
   end
 
   # The remote repository name of this {Tap}.
-  # e.g. `user/homebrew-repo`
+  # e.g. `user/homebrew-repository`
+  #
+  # @api public
   sig { returns(T.nilable(String)) }
   def remote_repo
     return unless (remote = self.remote)
@@ -231,43 +282,54 @@ class Tap
     "https://github.com/#{full_name}"
   end
 
-  # @private
   sig { returns(String) }
-  def repo_var_suffix
-    @repo_var_suffix ||= path.to_s
-                             .delete_prefix(TAP_DIRECTORY.to_s)
-                             .tr("^A-Za-z0-9", "_")
-                             .upcase
+  def repository_var_suffix
+    @repository_var_suffix ||= path.to_s
+                                   .delete_prefix(TAP_DIRECTORY.to_s)
+                                   .tr("^A-Za-z0-9", "_")
+                                   .upcase
   end
+  # odeprecated: use repository_var_suffix instead.
+  alias repo_var_suffix repository_var_suffix
 
-  # True if this {Tap} is a Git repository.
+  # Check whether this {Tap} is a Git repository.
+  #
+  # @api public
   def git?
-    git_repo.git_repo?
+    git_repository.git_repository?
   end
 
   # Git branch for this {Tap}.
+  #
+  # @api public
   def git_branch
     raise TapUnavailableError, name unless installed?
 
-    git_repo.branch_name
+    git_repository.branch_name
   end
 
   # Git HEAD for this {Tap}.
+  #
+  # @api public
   def git_head
     raise TapUnavailableError, name unless installed?
 
-    @git_head ||= git_repo.head_ref
+    @git_head ||= git_repository.head_ref
   end
 
   # Time since last git commit for this {Tap}.
+  #
+  # @api public
   def git_last_commit
     raise TapUnavailableError, name unless installed?
 
-    git_repo.last_committed
+    git_repository.last_committed
   end
 
   # The issues URL of this {Tap}.
   # e.g. `https://github.com/user/homebrew-repo/issues`
+  #
+  # @api public
   sig { returns(T.nilable(String)) }
   def issues_url
     return if !official? && custom_remote?
@@ -275,16 +337,16 @@ class Tap
     "#{default_remote}/issues"
   end
 
-  def to_s
-    name
-  end
-
-  # True if this {Tap} is an official Homebrew tap.
+  # Check whether this {Tap} is an official Homebrew tap.
+  #
+  # @api public
   def official?
     user == "Homebrew"
   end
 
   # Check whether the remote of this {Tap} is a private repository.
+  #
+  # @api public
   sig { returns(T::Boolean) }
   def private?
     return @private if defined?(@private)
@@ -319,24 +381,24 @@ class Tap
     end
   end
 
-  # True if this {Tap} has been installed.
+  # Check whether this {Tap} is installed.
+  #
+  # @api public
   sig { returns(T::Boolean) }
   def installed?
     path.directory?
   end
 
-  # True if this {Tap} is not a full clone.
+  # Check whether this {Tap} is a shallow clone.
   def shallow?
     (path/".git/shallow").exist?
   end
 
-  # @private
   sig { returns(T::Boolean) }
   def core_tap?
     false
   end
 
-  # @private
   sig { returns(T::Boolean) }
   def core_cask_tap?
     false
@@ -345,13 +407,13 @@ class Tap
   # Install this {Tap}.
   #
   # @param clone_target [String] If passed, it will be used as the clone remote.
-  # @param force_auto_update [Boolean, nil] If present, whether to override the
-  #   logic that skips non-GitHub repositories during auto-updates.
   # @param quiet [Boolean] If set, suppress all output.
   # @param custom_remote [Boolean] If set, change the tap's remote if already installed.
   # @param verify [Boolean] If set, verify all the formula, casks and aliases in the tap are valid.
   # @param force [Boolean] If set, force core and cask taps to install even under API mode.
-  def install(quiet: false, clone_target: nil, force_auto_update: nil,
+  #
+  # @api public
+  def install(quiet: false, clone_target: nil,
               custom_remote: false, verify: false, force: false)
     require "descriptions"
     require "readall"
@@ -369,7 +431,22 @@ class Tap
 
     if installed? && !custom_remote
       raise TapRemoteMismatchError.new(name, @remote, requested_remote) if clone_target && requested_remote != remote
-      raise TapAlreadyTappedError, name if force_auto_update.nil? && !shallow?
+      raise TapAlreadyTappedError, name unless shallow?
+    end
+
+    if !allowed_by_env? || forbidden_by_env?
+      owner = Homebrew::EnvConfig.forbidden_owner
+      owner_contact = if (contact = Homebrew::EnvConfig.forbidden_owner_contact.presence)
+        "\n#{contact}"
+      end
+
+      error_message = +"The installation of the #{full_name} was requested but #{owner}\n"
+      error_message << "has not allowed this tap in `HOMEBREW_ALLOWED_TAPS`" unless allowed_by_env?
+      error_message << " and\n" if !allowed_by_env? && forbidden_by_env?
+      error_message << "has forbidden this tap in `HOMEBREW_FORBIDDEN_TAPS`" if forbidden_by_env?
+      error_message << ".#{owner_contact}"
+
+      odie error_message
     end
 
     # ensure git is installed
@@ -380,14 +457,7 @@ class Tap
         fix_remote_configuration(requested_remote:, quiet:)
       end
 
-      case force_auto_update
-      when true
-        config[:forceautoupdate] = true
-        return
-      when false
-        config.delete(:forceautoupdate)
-        return
-      end
+      config.delete(:forceautoupdate)
 
       $stderr.ohai "Unshallowing #{name}" if shallow? && !quiet
       args = %w[fetch]
@@ -398,10 +468,11 @@ class Tap
       return
     elsif (core_tap? || core_cask_tap?) && !Homebrew::EnvConfig.no_install_from_api? && !force
       odie "Tapping #{name} is no longer typically necessary.\n" \
-           "Add #{Formatter.option("--force")} if you are sure you need it done."
+           "Add #{Formatter.option("--force")} if you are sure you need it for contributing to Homebrew."
     end
 
     clear_cache
+    Tap.clear_cache
 
     $stderr.ohai "Tapping #{name}" unless quiet
     args =  %W[clone #{requested_remote} #{path}]
@@ -411,9 +482,9 @@ class Tap
     args << "--origin=origin"
     args << "-q" if quiet
 
-    # Override user-set default template
+    # Override user-set default template.
     args << "--template="
-    # prevent fsmonitor from watching this repo
+    # Prevent `fsmonitor` from watching this repository.
     args << "--config" << "core.fsmonitor=false"
 
     begin
@@ -432,13 +503,13 @@ class Tap
       raise
     end
 
-    config[:forceautoupdate] = force_auto_update unless force_auto_update.nil?
-
     Commands.rebuild_commands_completion_list
     link_completions_and_manpages
 
     formatted_contents = contents.presence&.to_sentence&.dup&.prepend(" ")
     $stderr.puts "Tapped#{formatted_contents} (#{path.abv})." unless quiet
+
+    require "description_cache_store"
     CacheStoreDatabase.use(:descriptions) do |db|
       DescriptionCacheStore.new(db)
                            .update_from_formula_names!(formula_names)
@@ -477,9 +548,12 @@ class Tap
   end
 
   def link_completions_and_manpages
+    require "utils/link"
+
     command = "brew tap --repair"
     Utils::Link.link_manpages(path, command)
 
+    require "completions"
     Homebrew::Completions.show_completions_message_if_needed
     if official? || Homebrew::Completions.link_completions?
       Utils::Link.link_completions(path, command)
@@ -498,22 +572,22 @@ class Tap
     end
     return unless remote
 
-    current_upstream_head = T.must(git_repo.origin_branch_name)
-    return if requested_remote.blank? && git_repo.origin_has_branch?(current_upstream_head)
+    current_upstream_head = T.must(git_repository.origin_branch_name)
+    return if requested_remote.blank? && git_repository.origin_has_branch?(current_upstream_head)
 
     args = %w[fetch]
     args << "--quiet" if quiet
     args << "origin"
     args << "+refs/heads/*:refs/remotes/origin/*"
     safe_system "git", "-C", path, *args
-    git_repo.set_head_origin_auto
+    git_repository.set_head_origin_auto
 
-    new_upstream_head = T.must(git_repo.origin_branch_name)
+    new_upstream_head = T.must(git_repository.origin_branch_name)
     return if new_upstream_head == current_upstream_head
 
     safe_system "git", "-C", path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"
-    git_repo.rename_branch old: current_upstream_head, new: new_upstream_head
-    git_repo.set_upstream_branch local: new_upstream_head, origin: new_upstream_head
+    git_repository.rename_branch old: current_upstream_head, new: new_upstream_head
+    git_repository.set_upstream_branch local: new_upstream_head, origin: new_upstream_head
 
     return if quiet
 
@@ -521,6 +595,8 @@ class Tap
   end
 
   # Uninstall this {Tap}.
+  #
+  # @api public
   def uninstall(manual: false)
     require "descriptions"
     raise TapUnavailableError, name unless installed?
@@ -530,6 +606,7 @@ class Tap
     abv = path.abv
     formatted_contents = contents.presence&.to_sentence&.dup&.prepend(" ")
 
+    require "description_cache_store"
     CacheStoreDatabase.use(:descriptions) do |db|
       DescriptionCacheStore.new(db)
                            .delete_from_formula_names!(formula_names)
@@ -538,6 +615,8 @@ class Tap
       CaskDescriptionCacheStore.new(db)
                                .delete_from_cask_tokens!(cask_tokens)
     end
+
+    require "utils/link"
     Utils::Link.unlink_manpages(path)
     Utils::Link.unlink_completions(path)
     path.rmtree
@@ -546,6 +625,7 @@ class Tap
 
     Commands.rebuild_commands_completion_list
     clear_cache
+    Tap.clear_cache
 
     return if !manual || !official?
 
@@ -556,7 +636,9 @@ class Tap
     Homebrew::Settings.write :untapped, untapped.join(";")
   end
 
-  # True if the {#remote} of {Tap} is customized.
+  # Check whether the {#remote} of {Tap} is customized.
+  #
+  # @api public
   sig { returns(T::Boolean) }
   def custom_remote?
     return true unless (remote = self.remote)
@@ -565,6 +647,8 @@ class Tap
   end
 
   # Path to the directory of all {Formula} files for this {Tap}.
+  #
+  # @api public
   sig { returns(Pathname) }
   def formula_dir
     # Official formulae taps always use this directory, saves time to hardcode.
@@ -586,6 +670,8 @@ class Tap
   end
 
   # Path to the directory of all {Cask} files for this {Tap}.
+  #
+  # @api public
   sig { returns(Pathname) }
   def cask_dir
     @cask_dir ||= path/"Casks"
@@ -630,15 +716,13 @@ class Tap
         formula_dir.children
       else
         formula_dir.find
-      end.select(&method(:formula_file?))
+      end.select { formula_file?(_1) }
     else
       []
     end
   end
 
   # A mapping of {Formula} names to {Formula} file paths.
-  #
-  # @private
   sig { returns(T::Hash[String, Pathname]) }
   def formula_files_by_name
     @formula_files_by_name ||= formula_files.each_with_object({}) do |file, hash|
@@ -653,15 +737,13 @@ class Tap
   sig { returns(T::Array[Pathname]) }
   def cask_files
     @cask_files ||= if cask_dir.directory?
-      cask_dir.find.select(&method(:ruby_file?))
+      cask_dir.find.select { ruby_file?(_1) }
     else
       []
     end
   end
 
   # A mapping of {Cask} tokens to {Cask} file paths.
-  #
-  # @private
   sig { returns(T::Hash[String, Pathname]) }
   def cask_files_by_name
     @cask_files_by_name ||= cask_files.each_with_object({}) do |file, hash|
@@ -672,16 +754,15 @@ class Tap
     end
   end
 
-  # returns true if the file has a Ruby extension
-  # @private
+  # Check whether the file has a Ruby extension.
   sig { params(file: Pathname).returns(T::Boolean) }
   def ruby_file?(file)
     file.extname == ".rb"
   end
+  private :ruby_file?
 
-  # returns true if given path would present a {Formula} file in this {Tap}.
-  # accepts both absolute path and relative path (relative to this {Tap}'s path)
-  # @private
+  # Check whether the given path would present a {Formula} file in this {Tap}.
+  # Accepts either an absolute path or a path relative to this {Tap}'s path.
   sig { params(file: T.any(String, Pathname)).returns(T::Boolean) }
   def formula_file?(file)
     file = Pathname.new(file) unless file.is_a? Pathname
@@ -692,9 +773,8 @@ class Tap
     file.to_s.start_with?("#{formula_dir}/")
   end
 
-  # returns true if given path would present a {Cask} file in this {Tap}.
-  # accepts both absolute path and relative path (relative to this {Tap}'s path)
-  # @private
+  # Check whether the given path would present a {Cask} file in this {Tap}.
+  # Accepts either an absolute path or a path relative to this {Tap}'s path.
   sig { params(file: T.any(String, Pathname)).returns(T::Boolean) }
   def cask_file?(file)
     file = Pathname.new(file) unless file.is_a? Pathname
@@ -707,11 +787,10 @@ class Tap
   # An array of all {Formula} names of this {Tap}.
   sig { returns(T::Array[String]) }
   def formula_names
-    @formula_names ||= formula_files.map(&method(:formula_file_to_name))
+    @formula_names ||= formula_files.map { formula_file_to_name(_1) }
   end
 
   # A hash of all {Formula} name prefixes to versioned {Formula} in this {Tap}.
-  # @private
   sig { returns(T::Hash[String, T::Array[String]]) }
   def prefix_to_versioned_formulae_names
     @prefix_to_versioned_formulae_names ||= formula_names
@@ -724,33 +803,28 @@ class Tap
   # An array of all {Cask} tokens of this {Tap}.
   sig { returns(T::Array[String]) }
   def cask_tokens
-    @cask_tokens ||= cask_files.map(&method(:formula_file_to_name))
+    @cask_tokens ||= cask_files.map { formula_file_to_name(_1) }
   end
 
-  # path to the directory of all alias files for this {Tap}.
-  # @private
+  # Path to the directory of all alias files for this {Tap}.
   sig { returns(Pathname) }
   def alias_dir
     @alias_dir ||= path/"Aliases"
   end
 
-  # an array of all alias files of this {Tap}.
-  # @private
+  # An array of all alias files of this {Tap}.
   sig { returns(T::Array[Pathname]) }
   def alias_files
     @alias_files ||= Pathname.glob("#{alias_dir}/*").select(&:file?)
   end
 
-  # an array of all aliases of this {Tap}.
-  # @private
+  # An array of all aliases of this {Tap}.
   sig { returns(T::Array[String]) }
   def aliases
     @aliases ||= alias_table.keys
   end
 
   # Mapping from aliases to formula names.
-  #
-  # @private
   sig { returns(T::Hash[String, String]) }
   def alias_table
     @alias_table ||= alias_files.each_with_object({}) do |alias_file, alias_table|
@@ -759,8 +833,6 @@ class Tap
   end
 
   # Mapping from formula names to aliases.
-  #
-  # @private
   sig { returns(T::Hash[String, T::Array[String]]) }
   def alias_reverse_table
     @alias_reverse_table ||= alias_table.each_with_object({}) do |(alias_name, formula_name), alias_reverse_table|
@@ -820,8 +892,6 @@ class Tap
   end
 
   # Mapping from new to old cask tokens. Reverse of {#cask_renames}.
-  #
-  # @private
   sig { returns(T::Hash[String, T::Array[String]]) }
   def cask_reverse_renames
     @cask_reverse_renames ||= cask_renames.each_with_object({}) do |(old_name, new_name), hash|
@@ -841,28 +911,11 @@ class Tap
   end
 
   # Mapping from new to old formula names. Reverse of {#formula_renames}.
-  #
-  # @private
   sig { returns(T::Hash[String, T::Array[String]]) }
   def formula_reverse_renames
     @formula_reverse_renames ||= formula_renames.each_with_object({}) do |(old_name, new_name), hash|
       hash[new_name] ||= []
       hash[new_name] << old_name
-    end
-  end
-
-  sig { returns(T::Hash[String, T::Array[String]]) }
-  def self.reverse_tap_migrations_renames
-    Tap.each_with_object({}) do |tap, hash|
-      tap.tap_migrations.each do |old_name, new_name|
-        new_tap_user, new_tap_repo, new_name = new_name.split("/", 3)
-        next unless new_name
-
-        new_tap = Tap.fetch(T.must(new_tap_user), T.must(new_tap_repo))
-
-        hash["#{new_tap}/#{new_name}"] ||= []
-        hash["#{new_tap}/#{new_name}"] << old_name
-      end
     end
   end
 
@@ -873,6 +926,31 @@ class Tap
       JSON.parse(migration_file.read)
     else
       {}
+    end
+  end
+
+  sig { returns(T::Hash[String, T::Array[String]]) }
+  def reverse_tap_migrations_renames
+    @reverse_tap_migrations_renames ||= tap_migrations.each_with_object({}) do |(old_name, new_name), hash|
+      # Only include renames:
+      # + `homebrew/cask/water-buffalo`
+      # - `homebrew/cask`
+      next if new_name.count("/") != 2
+
+      hash[new_name] ||= []
+      hash[new_name] << old_name
+    end
+  end
+
+  # The old names a formula or cask had before getting migrated to the current tap.
+  sig { params(current_tap: Tap, name_or_token: String).returns(T::Array[String]) }
+  def self.tap_migration_oldnames(current_tap, name_or_token)
+    key = "#{current_tap}/#{name_or_token}"
+
+    Tap.each_with_object([]) do |tap, array|
+      next unless (renames = tap.reverse_tap_migrations_renames[key])
+
+      array.concat(renames)
     end
   end
 
@@ -920,7 +998,6 @@ class Tap
     end
   end
 
-  # @private
   sig { returns(T::Boolean) }
   def should_report_analytics?
     installed? && !private?
@@ -931,33 +1008,53 @@ class Tap
     other = Tap.fetch(other) if other.is_a?(String)
     other.is_a?(self.class) && name == other.name
   end
+  alias eql? ==
 
-  def self.each(&block)
-    return to_enum unless block
+  sig { returns(Integer) }
+  def hash
+    [self.class, name].hash
+  end
 
-    installed_taps = if TAP_DIRECTORY.directory?
-      TAP_DIRECTORY.subdirs
-                   .flat_map(&:subdirs)
-                   .map(&method(:from_path))
+  # All locally installed taps.
+  #
+  # @api public
+  sig { returns(T::Array[Tap]) }
+  def self.installed
+    cache[:installed] ||= if TAP_DIRECTORY.directory?
+      TAP_DIRECTORY.subdirs.flat_map(&:subdirs).map { from_path(_1) }
     else
       []
     end
+  end
 
-    available_taps = if Homebrew::EnvConfig.no_install_from_api?
-      installed_taps
+  # All locally installed and core taps. Core taps might not be installed locally when using the API.
+  sig { returns(T::Array[Tap]) }
+  def self.all
+    cache[:all] ||= begin
+      core_taps = [
+        CoreTap.instance,
+        (CoreCaskTap.instance if OS.mac?), # rubocop:disable Homebrew/MoveToExtendOS
+      ].compact
+
+      installed | core_taps
+    end
+  end
+
+  # Enumerate all available {Tap}s.
+  #
+  # @api public
+  def self.each(&block)
+    if Homebrew::EnvConfig.no_install_from_api?
+      installed.each(&block)
     else
-      default_taps = T.let([CoreTap.instance], T::Array[Tap])
-      default_taps << CoreCaskTap.instance if OS.mac? # rubocop:disable Homebrew/MoveToExtendOS
-      installed_taps + default_taps
-    end.sort_by(&:name).uniq
-
-    available_taps.each(&block)
+      all.each(&block)
+    end
   end
 
   # An array of all installed {Tap} names.
   sig { returns(T::Array[String]) }
   def self.names
-    # odeprecated "`#{self}.names`"
+    odeprecated "`#{self}.names`"
 
     map(&:name).sort
   end
@@ -974,13 +1071,11 @@ class Tap
     Homebrew::Settings.read(:untapped)&.split(";") || []
   end
 
-  # @private
   sig { params(file: Pathname).returns(String) }
   def formula_file_to_name(file)
     "#{name}/#{file.basename(".rb")}"
   end
 
-  # @private
   sig { params(file: Pathname).returns(String) }
   def alias_file_to_name(file)
     "#{name}/#{file.basename}"
@@ -1001,6 +1096,20 @@ class Tap
 
       list[formula_or_cask] == value
     end
+  end
+
+  sig { returns(T::Boolean) }
+  def allowed_by_env?
+    @allowed_by_env ||= begin
+      allowed_taps = self.class.allowed_taps
+
+      official? || allowed_taps.blank? || allowed_taps.include?(self)
+    end
+  end
+
+  sig { returns(T::Boolean) }
+  def forbidden_by_env?
+    @forbidden_by_env ||= self.class.forbidden_taps.include?(self)
   end
 
   private
@@ -1039,6 +1148,9 @@ class AbstractCoreTap < Tap
 
   private_class_method :fetch
 
+  # Get the singleton instance for this {Tap}.
+  #
+  # @api internal
   sig { returns(T.attached_class) }
   def self.instance
     @instance ||= T.unsafe(self).new
@@ -1054,12 +1166,16 @@ class AbstractCoreTap < Tap
 
   sig { void }
   def self.ensure_installed!
-    # odeprecated "`#{self}.ensure_installed!`", "`#{self}.instance.ensure_installed!`"
+    odeprecated "`#{self}.ensure_installed!`", "`#{self}.instance.ensure_installed!`"
 
     instance.ensure_installed!
   end
 
-  # @private
+  sig { params(file: Pathname).returns(String) }
+  def formula_file_to_name(file)
+    file.basename(".rb").to_s
+  end
+
   sig { override.returns(T::Boolean) }
   def should_report_analytics?
     return super if Homebrew::EnvConfig.no_install_from_api?
@@ -1070,7 +1186,6 @@ end
 
 # A specialized {Tap} class for the core formulae.
 class CoreTap < AbstractCoreTap
-  # @private
   sig { void }
   def initialize
     super "Homebrew", "core"
@@ -1091,7 +1206,7 @@ class CoreTap < AbstractCoreTap
   end
 
   # CoreTap never allows shallow clones (on request from GitHub).
-  def install(quiet: false, clone_target: nil, force_auto_update: nil,
+  def install(quiet: false, clone_target: nil,
               custom_remote: false, verify: false, force: false)
     remote = Homebrew::EnvConfig.core_git_remote # set by HOMEBREW_CORE_GIT_REMOTE
     requested_remote = clone_target || remote
@@ -1103,11 +1218,9 @@ class CoreTap < AbstractCoreTap
       $stderr.puts "HOMEBREW_CORE_GIT_REMOTE set: using #{remote} as the Homebrew/homebrew-core Git remote."
     end
 
-    super(quiet:, clone_target: remote, force_auto_update:,
-          custom_remote:, force:)
+    super(quiet:, clone_target: remote, custom_remote:, force:)
   end
 
-  # @private
   sig { params(manual: T::Boolean).void }
   def uninstall(manual: false)
     raise "Tap#uninstall is not available for CoreTap" if Homebrew::EnvConfig.no_install_from_api?
@@ -1115,19 +1228,16 @@ class CoreTap < AbstractCoreTap
     super
   end
 
-  # @private
   sig { returns(T::Boolean) }
   def core_tap?
     true
   end
 
-  # @private
   sig { returns(T::Boolean) }
   def linuxbrew_core?
     remote_repo.to_s.end_with?("/linuxbrew-core") || remote_repo == "Linuxbrew/homebrew-core"
   end
 
-  # @private
   sig { returns(Pathname) }
   def formula_dir
     @formula_dir ||= begin
@@ -1149,7 +1259,6 @@ class CoreTap < AbstractCoreTap
     formula_dir/formula_subdir/"#{name.downcase}.rb"
   end
 
-  # @private
   sig { returns(Pathname) }
   def alias_dir
     @alias_dir ||= begin
@@ -1158,7 +1267,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(T::Hash[String, String]) }
   def formula_renames
     @formula_renames ||= if Homebrew::EnvConfig.no_install_from_api?
@@ -1169,7 +1277,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(Hash) }
   def tap_migrations
     @tap_migrations ||= if Homebrew::EnvConfig.no_install_from_api?
@@ -1184,7 +1291,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(T::Array[String]) }
   def autobump
     @autobump ||= begin
@@ -1193,7 +1299,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(Hash) }
   def audit_exceptions
     @audit_exceptions ||= begin
@@ -1202,7 +1307,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(Hash) }
   def style_exceptions
     @style_exceptions ||= begin
@@ -1211,7 +1315,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(Hash) }
   def pypi_formula_mappings
     @pypi_formula_mappings ||= begin
@@ -1220,7 +1323,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(T::Array[T::Array[String]]) }
   def synced_versions_formulae
     @synced_versions_formulae ||= begin
@@ -1229,19 +1331,11 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
-  sig { params(file: Pathname).returns(String) }
-  def formula_file_to_name(file)
-    file.basename(".rb").to_s
-  end
-
-  # @private
   sig { params(file: Pathname).returns(String) }
   def alias_file_to_name(file)
     file.basename.to_s
   end
 
-  # @private
   sig { returns(T::Hash[String, String]) }
   def alias_table
     @alias_table ||= if Homebrew::EnvConfig.no_install_from_api?
@@ -1251,7 +1345,6 @@ class CoreTap < AbstractCoreTap
     end
   end
 
-  # @private
   sig { returns(T::Array[Pathname]) }
   def formula_files
     return super if Homebrew::EnvConfig.no_install_from_api?
@@ -1259,7 +1352,6 @@ class CoreTap < AbstractCoreTap
     formula_files_by_name.values
   end
 
-  # @private
   sig { returns(T::Array[String]) }
   def formula_names
     return super if Homebrew::EnvConfig.no_install_from_api?
@@ -1267,7 +1359,6 @@ class CoreTap < AbstractCoreTap
     Homebrew::API::Formula.all_formulae.keys
   end
 
-  # @private
   sig { returns(T::Hash[String, Pathname]) }
   def formula_files_by_name
     return super if Homebrew::EnvConfig.no_install_from_api?
@@ -1305,13 +1396,11 @@ end
 
 # A specialized {Tap} class for homebrew-cask.
 class CoreCaskTap < AbstractCoreTap
-  # @private
   sig { void }
   def initialize
     super "Homebrew", "cask"
   end
 
-  # @private
   sig { override.returns(T::Boolean) }
   def core_cask_tap?
     true
@@ -1319,7 +1408,11 @@ class CoreCaskTap < AbstractCoreTap
 
   sig { params(token: String).returns(Pathname) }
   def new_cask_path(token)
-    cask_subdir = token[0].to_s
+    cask_subdir = if token.start_with?("font-")
+      "font/font-#{token.delete_prefix("font-")[0]}"
+    else
+      token[0].to_s
+    end
     cask_dir/cask_subdir/"#{token.downcase}.rb"
   end
 
@@ -1337,7 +1430,6 @@ class CoreCaskTap < AbstractCoreTap
     Homebrew::API::Cask.all_casks.keys
   end
 
-  # @private
   sig { override.returns(T::Hash[String, Pathname]) }
   def cask_files_by_name
     return super if Homebrew::EnvConfig.no_install_from_api?
@@ -1425,5 +1517,3 @@ class TapConfig
     Homebrew::Settings.delete key, repo: tap.path
   end
 end
-
-require "extend/os/tap"

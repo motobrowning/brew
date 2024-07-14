@@ -3,11 +3,13 @@
 require "formula"
 require "formula_installer"
 require "keg"
+require "sandbox"
 require "tab"
 require "cmd/install"
 require "test/support/fixtures/testball"
 require "test/support/fixtures/testball_bottle"
 require "test/support/fixtures/failball"
+require "test/support/fixtures/failball_offline_install"
 
 RSpec.describe FormulaInstaller do
   matcher :be_poured_from_bottle do
@@ -28,7 +30,7 @@ RSpec.describe FormulaInstaller do
 
     begin
       Tab.clear_cache
-      expect(Tab.for_keg(keg)).not_to be_poured_from_bottle
+      expect(keg.tab).not_to be_poured_from_bottle
 
       yield formula if block_given?
     ensure
@@ -68,6 +70,10 @@ RSpec.describe FormulaInstaller do
       expect(bin.children.count).to eq(3)
       expect(f.prefix/".brew/testball.rb").to be_readable
     end
+  end
+
+  specify "offline installation" do
+    expect { temporary_install(FailballOfflineInstall.new) }.to raise_error(BuildError) if Sandbox.available?
   end
 
   specify "Formula is not poured from bottle when compiler specified" do
@@ -170,6 +176,251 @@ RSpec.describe FormulaInstaller do
     end
   end
 
+  describe "#forbidden_license_check" do
+    it "raises on forbidden license on formula" do
+      ENV["HOMEBREW_FORBIDDEN_LICENSES"] = "AGPL-3.0"
+
+      f_name = "homebrew-forbidden-license"
+      f_path = CoreTap.instance.new_formula_path(f_name)
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+          license "AGPL-3.0"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory(f_name)
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_license_check
+      end.to raise_error(CannotInstallFormulaError, /#{f_name}'s licenses are all forbidden/)
+    end
+
+    it "raises on forbidden license on formula with contact instructions" do
+      ENV["HOMEBREW_FORBIDDEN_LICENSES"] = "AGPL-3.0"
+      ENV["HOMEBREW_FORBIDDEN_OWNER"] = owner = "your dog"
+      ENV["HOMEBREW_FORBIDDEN_OWNER_CONTACT"] = contact = "Woof loudly to get this unblocked."
+
+      f_name = "homebrew-forbidden-license"
+      f_path = CoreTap.instance.new_formula_path(f_name)
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+          license "AGPL-3.0"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory(f_name)
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_license_check
+      end.to raise_error(CannotInstallFormulaError, /#{owner}.+\n#{contact}/m)
+    end
+
+    it "raises on forbidden license on dependency" do
+      ENV["HOMEBREW_FORBIDDEN_LICENSES"] = "GPL-3.0"
+
+      dep_name = "homebrew-forbidden-dependency-license"
+      dep_path = CoreTap.instance.new_formula_path(dep_name)
+      dep_path.write <<~RUBY
+        class #{Formulary.class_s(dep_name)} < Formula
+          url "foo"
+          version "0.1"
+          license "GPL-3.0"
+        end
+      RUBY
+      Formulary.cache.delete(dep_path)
+
+      f_name = "homebrew-forbidden-dependent-license"
+      f_path = CoreTap.instance.new_formula_path(f_name)
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+          depends_on "#{dep_name}"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory(f_name)
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_license_check
+      end.to raise_error(CannotInstallFormulaError, /dependency on #{dep_name} where all/)
+    end
+  end
+
+  describe "#forbidden_tap_check" do
+    before do
+      allow(Tap).to receive_messages(allowed_taps: allowed_taps_set, forbidden_taps: forbidden_taps_set)
+    end
+
+    let(:homebrew_forbidden) { Tap.fetch("homebrew/forbidden") }
+    let(:allowed_third_party) { Tap.fetch("nothomebrew/allowed") }
+    let(:disallowed_third_party) { Tap.fetch("nothomebrew/notallowed") }
+    let(:allowed_taps_set) { Set.new([allowed_third_party]) }
+    let(:forbidden_taps_set) { Set.new([homebrew_forbidden]) }
+
+    it "raises on forbidden tap on formula" do
+      f_tap = homebrew_forbidden
+      f_name = "homebrew-forbidden-tap"
+      f_path = homebrew_forbidden.new_formula_path(f_name)
+      f_path.parent.mkpath
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory("#{f_tap}/#{f_name}")
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_tap_check
+      end.to raise_error(CannotInstallFormulaError, /has the tap #{f_tap}/)
+    ensure
+      f_path.parent.parent.rmtree
+    end
+
+    it "raises on not allowed third-party tap on formula" do
+      f_tap = disallowed_third_party
+      f_name = "homebrew-not-allowed-tap"
+      f_path = disallowed_third_party.new_formula_path(f_name)
+      f_path.parent.mkpath
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory("#{f_tap}/#{f_name}")
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_tap_check
+      end.to raise_error(CannotInstallFormulaError, /has the tap #{f_tap}/)
+    ensure
+      f_path.parent.parent.parent.rmtree
+    end
+
+    it "does not raise on allowed tap on formula" do
+      f_tap = allowed_third_party
+      f_name = "homebrew-allowed-tap"
+      f_path = allowed_third_party.new_formula_path(f_name)
+      f_path.parent.mkpath
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory("#{f_tap}/#{f_name}")
+      fi = described_class.new(f)
+
+      expect { fi.forbidden_tap_check }.not_to raise_error
+    ensure
+      f_path.parent.parent.parent.rmtree
+    end
+
+    it "raises on forbidden tap on dependency" do
+      dep_tap = homebrew_forbidden
+      dep_name = "homebrew-forbidden-dependency-tap"
+      dep_path = homebrew_forbidden.new_formula_path(dep_name)
+      dep_path.parent.mkpath
+      dep_path.write <<~RUBY
+        class #{Formulary.class_s(dep_name)} < Formula
+          url "foo"
+          version "0.1"
+        end
+      RUBY
+      Formulary.cache.delete(dep_path)
+
+      f_name = "homebrew-forbidden-dependent-tap"
+      f_path = CoreTap.instance.new_formula_path(f_name)
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+          depends_on "#{dep_name}"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory(f_name)
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_tap_check
+      end.to raise_error(CannotInstallFormulaError, /from the #{dep_tap} tap but/)
+    ensure
+      dep_path.parent.parent.rmtree
+    end
+  end
+
+  describe "#forbidden_formula_check" do
+    it "raises on forbidden formula" do
+      ENV["HOMEBREW_FORBIDDEN_FORMULAE"] = f_name = "homebrew-forbidden-formula"
+      f_path = CoreTap.instance.new_formula_path(f_name)
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory(f_name)
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_formula_check
+      end.to raise_error(CannotInstallFormulaError, /#{f_name} was forbidden/)
+    end
+
+    it "raises on forbidden dependency" do
+      ENV["HOMEBREW_FORBIDDEN_FORMULAE"] = dep_name = "homebrew-forbidden-dependency-formula"
+      dep_path = CoreTap.instance.new_formula_path(dep_name)
+      dep_path.write <<~RUBY
+        class #{Formulary.class_s(dep_name)} < Formula
+          url "foo"
+          version "0.1"
+        end
+      RUBY
+      Formulary.cache.delete(dep_path)
+
+      f_name = "homebrew-forbidden-dependent-formula"
+      f_path = CoreTap.instance.new_formula_path(f_name)
+      f_path.write <<~RUBY
+        class #{Formulary.class_s(f_name)} < Formula
+          url "foo"
+          version "0.1"
+          depends_on "#{dep_name}"
+        end
+      RUBY
+      Formulary.cache.delete(f_path)
+
+      f = Formulary.factory(f_name)
+      fi = described_class.new(f)
+
+      expect do
+        fi.forbidden_formula_check
+      end.to raise_error(CannotInstallFormulaError, /#{dep_name} formula was forbidden/)
+    end
+  end
+
   specify "install fails with BuildError when a system() call fails" do
     ENV["HOMEBREW_TEST_NO_EXIT_CLEANUP"] = "1"
     ENV["FAILBALL_BUILD_ERROR"] = "1"
@@ -192,6 +443,7 @@ RSpec.describe FormulaInstaller do
 
     it "shows audit problems if HOMEBREW_DEVELOPER is set" do
       ENV["HOMEBREW_DEVELOPER"] = "1"
+      expect(SBOM).to receive(:fetch_schema!).and_return({})
       formula_installer.fetch
       formula_installer.install
       expect(formula_installer).to receive(:audit_installed).and_call_original
@@ -200,22 +452,6 @@ RSpec.describe FormulaInstaller do
   end
 
   describe "#install_service" do
-    it "works if plist is set" do
-      formula = Testball.new
-      path = formula.launchd_service_path
-      formula.opt_prefix.mkpath
-
-      expect(formula).to receive(:plist).twice.and_return("PLIST")
-      expect(formula).to receive(:launchd_service_path).and_call_original
-
-      installer = described_class.new(formula)
-      expect do
-        installer.install_service
-      end.not_to output(/Error: Failed to install service files/).to_stderr
-
-      expect(path).to exist
-    end
-
     it "works if service is set" do
       formula = Testball.new
       service = Homebrew::Service.new(formula)
@@ -223,14 +459,13 @@ RSpec.describe FormulaInstaller do
       service_path = formula.systemd_service_path
       formula.opt_prefix.mkpath
 
-      expect(formula).to receive(:plist).and_return(nil)
-      expect(formula).to receive(:service?).exactly(3).and_return(true)
-      expect(formula).to receive(:service).exactly(7).and_return(service)
+      expect(formula).to receive(:service?).and_return(true)
+      expect(formula).to receive(:service).at_least(:once).and_return(service)
       expect(formula).to receive(:launchd_service_path).and_call_original
       expect(formula).to receive(:systemd_service_path).and_call_original
 
       expect(service).to receive(:timed?).and_return(false)
-      expect(service).to receive(:command?).exactly(2).and_return(true)
+      expect(service).to receive(:command?).and_return(true)
       expect(service).to receive(:to_plist).and_return("plist")
       expect(service).to receive(:to_systemd_unit).and_return("unit")
 
@@ -251,15 +486,14 @@ RSpec.describe FormulaInstaller do
       timer_path = formula.systemd_timer_path
       formula.opt_prefix.mkpath
 
-      expect(formula).to receive(:plist).and_return(nil)
-      expect(formula).to receive(:service?).exactly(3).and_return(true)
-      expect(formula).to receive(:service).exactly(9).and_return(service)
+      expect(formula).to receive(:service?).and_return(true)
+      expect(formula).to receive(:service).at_least(:once).and_return(service)
       expect(formula).to receive(:launchd_service_path).and_call_original
       expect(formula).to receive(:systemd_service_path).and_call_original
       expect(formula).to receive(:systemd_timer_path).and_call_original
 
       expect(service).to receive(:timed?).and_return(true)
-      expect(service).to receive(:command?).exactly(2).and_return(true)
+      expect(service).to receive(:command?).and_return(true)
       expect(service).to receive(:to_plist).and_return("plist")
       expect(service).to receive(:to_systemd_unit).and_return("unit")
       expect(service).to receive(:to_systemd_timer).and_return("timer")
@@ -279,8 +513,7 @@ RSpec.describe FormulaInstaller do
       path = formula.launchd_service_path
       formula.opt_prefix.mkpath
 
-      expect(formula).to receive(:plist).and_return(nil)
-      expect(formula).to receive(:service?).exactly(3).and_return(nil)
+      expect(formula).to receive(:service?).and_return(nil)
       expect(formula).not_to receive(:launchd_service_path)
 
       installer = described_class.new(formula)
@@ -288,25 +521,6 @@ RSpec.describe FormulaInstaller do
         installer.install_service
       end.not_to output(/Error: Failed to install service files/).to_stderr
 
-      expect(path).not_to exist
-    end
-
-    it "errors with duplicate definition" do
-      formula = Testball.new
-      path = formula.launchd_service_path
-      formula.opt_prefix.mkpath
-
-      expect(formula).to receive(:plist).and_return("plist")
-      expect(formula).to receive(:service?).and_return(true)
-      expect(formula).not_to receive(:service)
-      expect(formula).not_to receive(:launchd_service_path)
-
-      installer = described_class.new(formula)
-      expect do
-        installer.install_service
-      end.to output("Error: Formula specified both service and plist\n").to_stderr
-
-      expect(Homebrew).to have_failed
       expect(path).not_to exist
     end
   end

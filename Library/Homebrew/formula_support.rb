@@ -37,6 +37,7 @@ class KegOnlyReason
     !by_macos?
   end
 
+  sig { returns(String) }
   def to_s
     return @explanation unless @explanation.empty?
 
