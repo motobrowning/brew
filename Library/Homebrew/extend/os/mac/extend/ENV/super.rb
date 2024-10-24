@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:disable Sorbet/StrictSigil
 # frozen_string_literal: true
 
 module Superenv
@@ -99,6 +99,16 @@ module Superenv
       MacOS::CLT::PKG_PATH
     end
 
+    # This is a workaround for the missing `m4` in Xcode CLT 15.3, which was
+    # reported in FB13679972. Apple has fixed this in Xcode CLT 16.0.
+    # See https://github.com/Homebrew/homebrew-core/issues/165388
+    if deps.none? { |d| d.name == "m4" } &&
+       MacOS.active_developer_dir == MacOS::CLT::PKG_PATH &&
+       !File.exist?("#{MacOS::CLT::PKG_PATH}/usr/bin/m4") &&
+       (gm4 = DevelopmentTools.locate("gm4").to_s).present?
+      self["M4"] = gm4
+    end
+
     generic_setup_build_environment(formula:, cc:, build_bottle:, bottle_arch:,
                                     testing_formula:, debug_symbols:)
 
@@ -142,7 +152,13 @@ module Superenv
     no_fixup_chains
 
     # Strip build prefixes from linker where supported, for deterministic builds.
-    append_to_cccfg "o" if DevelopmentTools.ld64_version >= 512
+    append_to_cccfg "o" if OS::Mac::DevelopmentTools.ld64_version >= 512
+
+    # Pass `-ld_classic` whenever the linker is invoked with `-dead_strip_dylibs`
+    # on `ld` versions that don't properly handle that option.
+    if OS::Mac::DevelopmentTools.ld64_version >= "1015.7" && OS::Mac::DevelopmentTools.ld64_version <= "1022.1"
+      append_to_cccfg "c"
+    end
   end
 
   def no_weak_imports

@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "cask/cache"
@@ -51,10 +51,14 @@ module Cask
 
     # Loads a cask from a string.
     class FromContentLoader < AbstractContentLoader
+      sig {
+        params(ref: T.any(Pathname, String, Cask, URI::Generic), warn: T::Boolean)
+          .returns(T.nilable(T.attached_class))
+      }
       def self.try_new(ref, warn: false)
-        return false unless ref.respond_to?(:to_str)
+        return if ref.is_a?(Cask)
 
-        content = T.unsafe(ref).to_str
+        content = ref.to_str
 
         # Cache compiled regex
         @regex ||= begin
@@ -102,6 +106,9 @@ module Cask
 
         return if %w[.rb .json].exclude?(path.extname)
         return unless path.expand_path.exist?
+
+        return if Homebrew::EnvConfig.forbid_packages_from_paths? &&
+                  !path.realpath.to_s.start_with?("#{Caskroom.path}/", "#{HOMEBREW_LIBRARY}/Taps/")
 
         new(path)
       end
@@ -159,6 +166,8 @@ module Cask
                 .returns(T.nilable(T.attached_class))
       }
       def self.try_new(ref, warn: false)
+        return if Homebrew::EnvConfig.forbid_packages_from_paths?
+
         # Cache compiled regex
         @uri_regex ||= begin
           uri_regex = ::URI::DEFAULT_PARSER.make_regexp
@@ -494,12 +503,25 @@ module Cask
                 .returns(T.nilable(T.attached_class))
       }
       def self.try_new(ref, warn: false)
-        return unless ref.is_a?(String)
+        token = if ref.is_a?(String)
+          ref
+        elsif ref.is_a?(Pathname)
+          ref.basename(ref.extname).to_s
+        end
+        return unless token
 
-        possible_installed_cask = Cask.new(ref)
+        possible_installed_cask = Cask.new(token)
         return unless (installed_caskfile = possible_installed_cask.installed_caskfile)
 
         new(installed_caskfile)
+      end
+
+      sig { params(path: T.any(Pathname, String), token: String).void }
+      def initialize(path, token: "")
+        super
+
+        installed_tap = Cask.new(@token).tab.tap
+        @tap = installed_tap if installed_tap
       end
     end
 
@@ -587,6 +609,32 @@ module Cask
           return loader
         end
       end
+    end
+
+    sig { params(ref: String, config: T.nilable(Config), warn: T::Boolean).returns(Cask) }
+    def self.load_prefer_installed(ref, config: nil, warn: true)
+      tap, token = Tap.with_cask_token(ref)
+      token ||= ref
+      tap ||= Cask.new(ref).tab.tap
+
+      if tap.nil?
+        self.load(token, config:, warn:)
+      else
+        begin
+          self.load("#{tap}/#{token}", config:, warn:)
+        rescue CaskUnavailableError
+          # cask may be migrated to different tap. Try to search in all taps.
+          self.load(token, config:, warn:)
+        end
+      end
+    end
+
+    sig { params(path: Pathname, config: T.nilable(Config), warn: T::Boolean).returns(Cask) }
+    def self.load_from_installed_caskfile(path, config: nil, warn: true)
+      loader = FromInstalledPathLoader.try_new(path, warn:)
+      loader ||= NullLoader.new(path)
+
+      loader.load(config:)
     end
 
     def self.default_path(token)

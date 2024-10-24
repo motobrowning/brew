@@ -56,7 +56,7 @@ module UnpackStrategy
         result = loop do
           # We need to use `find` here instead of Ruby in order to properly handle
           # file names containing special characters, such as “e” + “´” vs. “é”.
-          r = system_command("find", args: [".", "-print0"], chdir: pathname, print_stderr: false)
+          r = system_command("find", args: [".", "-print0"], chdir: pathname, print_stderr: false, reset_uid: true)
           tries += 1
 
           # Spurious bug on CI, which in most cases can be worked around by retrying.
@@ -157,15 +157,10 @@ module UnpackStrategy
 
           bomfile_path = T.must(bomfile.path)
 
-          # Ditto will try to write as the UID, not the EUID and the Tempfile has 0700 permissions.
-          if Process.euid != Process.uid
-            FileUtils.chown(nil, Process.gid, bomfile_path)
-            FileUtils.chmod "g+rw", bomfile_path
-          end
-
           system_command!("ditto",
-                          args:    ["--bom", bomfile_path, "--", path, unpack_dir],
-                          verbose:)
+                          args:      ["--bom", bomfile_path, "--", path, unpack_dir],
+                          verbose:,
+                          reset_uid: true)
 
           FileUtils.chmod "u+w", Pathname.glob(unpack_dir/"**/*", File::FNM_DOTMATCH).reject(&:symlink?)
         end

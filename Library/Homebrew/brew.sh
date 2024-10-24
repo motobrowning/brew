@@ -54,6 +54,13 @@ then
   HOMEBREW_DEFAULT_CACHE="${HOME}/Library/Caches/Homebrew"
   HOMEBREW_DEFAULT_LOGS="${HOME}/Library/Logs/Homebrew"
   HOMEBREW_DEFAULT_TEMP="/private/tmp"
+
+  HOMEBREW_MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
+
+  IFS=. read -r -a MACOS_VERSION_ARRAY <<<"${HOMEBREW_MACOS_VERSION}"
+  printf -v HOMEBREW_MACOS_VERSION_NUMERIC "%02d%02d%02d" "${MACOS_VERSION_ARRAY[@]}"
+
+  unset MACOS_VERSION_ARRAY
 else
   CACHE_HOME="${HOMEBREW_XDG_CACHE_HOME:-${HOME}/.cache}"
   HOMEBREW_DEFAULT_CACHE="${CACHE_HOME}/Homebrew"
@@ -161,12 +168,18 @@ case "$@" in
     homebrew-command-path "$@" && exit 0
     ;;
   # falls back to cmd/list.rb on a non-zero return
-  list*)
+  list* | ls*)
     source "${HOMEBREW_LIBRARY}/Homebrew/list.sh"
     homebrew-list "$@" && exit 0
     ;;
+  # homebrew-tap only handles invocations with no arguments
+  tap)
+    source "${HOMEBREW_LIBRARY}/Homebrew/tap.sh"
+    homebrew-tap "$@"
+    exit 0
+    ;;
   # falls back to cmd/help.rb on a non-zero return
-  help | --help | -h | --usage | -? | "")
+  help | --help | -h | --usage | "-?" | "")
     homebrew-help "$@" && exit 0
     ;;
 esac
@@ -179,8 +192,9 @@ source "${HOMEBREW_LIBRARY}/Homebrew/utils/helpers.sh"
 check-run-command-as-root() {
   [[ "${EUID}" == 0 || "${UID}" == 0 ]] || return
 
-  # Allow Azure Pipelines/GitHub Actions/Docker/Concourse/Kubernetes to do everything as root (as it's normal there)
+  # Allow Azure Pipelines/GitHub Actions/Docker/Podman/Concourse/Kubernetes to do everything as root (as it's normal there)
   [[ -f /.dockerenv ]] && return
+  [[ -f /run/.containerenv ]] && return
   [[ -f /proc/1/cgroup ]] && grep -E "azpl_job|actions_job|docker|garden|kubepods" -q /proc/1/cgroup && return
 
   # Homebrew Services may need `sudo` for system-wide daemons.
@@ -294,7 +308,7 @@ auto-update() {
     for repo_fetch_head in "${repo_fetch_heads[@]}"
     do
       if [[ ! -f "${repo_fetch_head}" ]] ||
-         [[ -z "$(find "${repo_fetch_head}" -type f -mtime -"${HOMEBREW_AUTO_UPDATE_SECS}"s 2>/dev/null)" ]]
+         [[ -z "$(find "${repo_fetch_head}" -type f -newermt "-${HOMEBREW_AUTO_UPDATE_SECS} seconds" 2>/dev/null)" ]]
       then
         needs_auto_update=1
         break
@@ -369,17 +383,6 @@ then
   odie "Cowardly refusing to continue at this prefix: ${HOMEBREW_PREFIX}"
 fi
 
-# Many Pathname operations use getwd when they shouldn't, and then throw
-# odd exceptions. Reduce our support burden by showing a user-friendly error.
-if ! [[ -d "${PWD}" ]]
-then
-  odie "The current working directory must exist to run brew."
-fi
-if ! [[ -r "${PWD}" ]]
-then
-  odie "The current working directory must be readable to ${USER} to run brew."
-fi
-
 #####
 ##### Now, do everything else (that may be a bit slower).
 #####
@@ -387,7 +390,7 @@ fi
 # Docker image deprecation
 if [[ -f "${HOMEBREW_REPOSITORY}/.docker-deprecate" ]]
 then
-  DOCKER_DEPRECATION_MESSAGE="$(cat "${HOMEBREW_REPOSITORY}/.docker-deprecate")"
+  read -r DOCKER_DEPRECATION_MESSAGE <"${HOMEBREW_REPOSITORY}/.docker-deprecate"
   if [[ -n "${GITHUB_ACTIONS}" ]]
   then
     echo "::warning::${DOCKER_DEPRECATION_MESSAGE}" >&2
@@ -439,21 +442,48 @@ setup_git
 
 GIT_DESCRIBE_CACHE="${HOMEBREW_REPOSITORY}/.git/describe-cache"
 GIT_REVISION=$("${HOMEBREW_GIT}" -C "${HOMEBREW_REPOSITORY}" rev-parse HEAD 2>/dev/null)
+
+# safe fallback in case git rev-parse fails e.g. if this is not considered a safe git directory
+if [[ -z "${GIT_REVISION}" ]]
+then
+  read -r GIT_HEAD 2>/dev/null <"${HOMEBREW_REPOSITORY}/.git/HEAD"
+  if [[ "${GIT_HEAD}" == "ref: refs/heads/master" ]]
+  then
+    read -r GIT_REVISION 2>/dev/null <"${HOMEBREW_REPOSITORY}/.git/refs/heads/master"
+  elif [[ "${GIT_HEAD}" == "ref: refs/heads/stable" ]]
+  then
+    read -r GIT_REVISION 2>/dev/null <"${HOMEBREW_REPOSITORY}/.git/refs/heads/stable"
+  fi
+  unset GIT_HEAD
+fi
+
 if [[ -n "${GIT_REVISION}" ]]
 then
   GIT_DESCRIBE_CACHE_FILE="${GIT_DESCRIBE_CACHE}/${GIT_REVISION}"
-  if [[ -f "${GIT_DESCRIBE_CACHE_FILE}" ]]
+  if [[ -r "${GIT_DESCRIBE_CACHE_FILE}" ]] && "${HOMEBREW_GIT}" -C "${HOMEBREW_REPOSITORY}" diff --quiet --no-ext-diff 2>/dev/null
   then
-    HOMEBREW_VERSION="$(cat "${GIT_DESCRIBE_CACHE_FILE}")"
-  else
-    rm -rf "${GIT_DESCRIBE_CACHE}"
+    read -r GIT_DESCRIBE_CACHE_HOMEBREW_VERSION <"${GIT_DESCRIBE_CACHE_FILE}"
+    if [[ -n "${GIT_DESCRIBE_CACHE_HOMEBREW_VERSION}" && "${GIT_DESCRIBE_CACHE_HOMEBREW_VERSION}" != *"-dirty" ]]
+    then
+      HOMEBREW_VERSION="${GIT_DESCRIBE_CACHE_HOMEBREW_VERSION}"
+    fi
+    unset GIT_DESCRIBE_CACHE_HOMEBREW_VERSION
+  fi
+
+  if [[ -z "${HOMEBREW_VERSION}" ]]
+  then
     HOMEBREW_VERSION="$("${HOMEBREW_GIT}" -C "${HOMEBREW_REPOSITORY}" describe --tags --dirty --abbrev=7 2>/dev/null)"
-    mkdir -p "${GIT_DESCRIBE_CACHE}"
-    echo "${HOMEBREW_VERSION}" >"${GIT_DESCRIBE_CACHE_FILE}"
+    # Don't output any permissions errors here. The user may not have write
+    # permissions to the cache but we don't care because it's an optional
+    # performance improvement.
+    rm -rf "${GIT_DESCRIBE_CACHE}" 2>/dev/null
+    mkdir -p "${GIT_DESCRIBE_CACHE}" 2>/dev/null
+    echo "${HOMEBREW_VERSION}" | tee "${GIT_DESCRIBE_CACHE_FILE}" &>/dev/null
   fi
   unset GIT_DESCRIBE_CACHE_FILE
 else
-  rm -rf "${GIT_DESCRIBE_CACHE}"
+  # Don't care about permission errors here either.
+  rm -rf "${GIT_DESCRIBE_CACHE}" 2>/dev/null
 fi
 unset GIT_REVISION
 unset GIT_DESCRIBE_CACHE
@@ -461,7 +491,7 @@ unset GIT_DESCRIBE_CACHE
 HOMEBREW_USER_AGENT_VERSION="${HOMEBREW_VERSION}"
 if [[ -z "${HOMEBREW_VERSION}" ]]
 then
-  HOMEBREW_VERSION=">=4.1.0 (shallow or no git repository)"
+  HOMEBREW_VERSION=">=4.3.0 (shallow or no git repository)"
   HOMEBREW_USER_AGENT_VERSION="4.X.Y"
 fi
 
@@ -491,15 +521,16 @@ esac
 # TODO: bump version when new macOS is released or announced and update references in:
 # - docs/Installation.md
 # - https://github.com/Homebrew/install/blob/HEAD/install.sh
+# - Library/Homebrew/os/mac.rb (latest_sdk_version)
 # and, if needed:
 # - MacOSVersion::SYMBOLS
-HOMEBREW_MACOS_NEWEST_UNSUPPORTED="15"
+HOMEBREW_MACOS_NEWEST_UNSUPPORTED="16"
 # TODO: bump version when new macOS is released and update references in:
 # - docs/Installation.md
 # - HOMEBREW_MACOS_OLDEST_SUPPORTED in .github/workflows/pkg-installer.yml
 # - `os-version min` in package/Distribution.xml
 # - https://github.com/Homebrew/install/blob/HEAD/install.sh
-HOMEBREW_MACOS_OLDEST_SUPPORTED="12"
+HOMEBREW_MACOS_OLDEST_SUPPORTED="13"
 HOMEBREW_MACOS_OLDEST_ALLOWED="10.11"
 
 if [[ -n "${HOMEBREW_MACOS}" ]]
@@ -507,7 +538,6 @@ then
   HOMEBREW_PRODUCT="Homebrew"
   HOMEBREW_SYSTEM="Macintosh"
   [[ "${HOMEBREW_PROCESSOR}" == "x86_64" ]] && HOMEBREW_PROCESSOR="Intel"
-  HOMEBREW_MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
   # Don't change this from Mac OS X to match what macOS itself does in Safari on 10.12
   HOMEBREW_OS_USER_AGENT_VERSION="Mac OS X ${HOMEBREW_MACOS_VERSION}"
 
@@ -518,11 +548,10 @@ then
     HOMEBREW_PHYSICAL_PROCESSOR="arm64"
   fi
 
-  # Intentionally set this variable by exploding another.
-  # shellcheck disable=SC2086,SC2183
-  printf -v HOMEBREW_MACOS_VERSION_NUMERIC "%02d%02d%02d" ${HOMEBREW_MACOS_VERSION//./ }
-  # shellcheck disable=SC2248
-  printf -v HOMEBREW_MACOS_OLDEST_ALLOWED_NUMERIC "%02d%02d%02d" ${HOMEBREW_MACOS_OLDEST_ALLOWED//./ }
+  IFS=. read -r -a MACOS_VERSION_ARRAY <<<"${HOMEBREW_MACOS_OLDEST_ALLOWED}"
+  printf -v HOMEBREW_MACOS_OLDEST_ALLOWED_NUMERIC "%02d%02d%02d" "${MACOS_VERSION_ARRAY[@]}"
+
+  unset MACOS_VERSION_ARRAY
 
   # Don't include minor versions for Big Sur and later.
   if [[ "${HOMEBREW_MACOS_VERSION_NUMERIC}" -gt "110000" ]]
@@ -589,7 +618,6 @@ else
 
   curl_version_output="$(${HOMEBREW_CURL} --version 2>/dev/null)"
   curl_name_and_version="${curl_version_output%% (*}"
-  # shellcheck disable=SC2248
   if [[ "$(numeric "${curl_name_and_version##* }")" -lt "$(numeric "${HOMEBREW_MINIMUM_CURL_VERSION}")" ]]
   then
     message="Please update your system curl or set HOMEBREW_CURL_PATH to a newer version.
@@ -618,7 +646,6 @@ Your curl executable: $(type -p "${HOMEBREW_CURL}")"
   # $extra is intentionally discarded.
   # shellcheck disable=SC2034
   IFS='.' read -r major minor micro build extra <<<"${git_version_output##* }"
-  # shellcheck disable=SC2248
   if [[ "$(numeric "${major}.${minor}.${micro}.${build}")" -lt "$(numeric "${HOMEBREW_MINIMUM_GIT_VERSION}")" ]]
   then
     message="Please update your system Git or set HOMEBREW_GIT_PATH to a newer version.
@@ -886,6 +913,7 @@ fi
 export HOMEBREW_CORE_GIT_REMOTE
 
 # Set HOMEBREW_DEVELOPER_COMMAND if the command being run is a developer command
+unset HOMEBREW_DEVELOPER_COMMAND
 if [[ -f "${HOMEBREW_LIBRARY}/Homebrew/dev-cmd/${HOMEBREW_COMMAND}.sh" ]] ||
    [[ -f "${HOMEBREW_LIBRARY}/Homebrew/dev-cmd/${HOMEBREW_COMMAND}.rb" ]]
 then
@@ -934,17 +962,16 @@ check-run-command-as-root
 
 check-prefix-is-not-tmpdir
 
-# shellcheck disable=SC2250
 if [[ "${HOMEBREW_PREFIX}" == "/usr/local" ]] &&
    [[ "${HOMEBREW_PREFIX}" != "${HOMEBREW_REPOSITORY}" ]] &&
    [[ "${HOMEBREW_CELLAR}" == "${HOMEBREW_REPOSITORY}/Cellar" ]]
 then
   cat >&2 <<EOS
 Warning: your HOMEBREW_PREFIX is set to /usr/local but HOMEBREW_CELLAR is set
-to $HOMEBREW_CELLAR. Your current HOMEBREW_CELLAR location will stop
+to ${HOMEBREW_CELLAR}. Your current HOMEBREW_CELLAR location will stop
 you being able to use all the binary packages (bottles) Homebrew provides. We
 recommend you move your HOMEBREW_CELLAR to /usr/local/Cellar which will get you
-access to all bottles."
+access to all bottles.
 EOS
 fi
 

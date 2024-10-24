@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "description_cache_store"
@@ -150,7 +150,7 @@ module Homebrew
     end
 
     def self.simplify_string(string)
-      string.downcase.gsub(/[^a-z\d]/i, "")
+      string.downcase.gsub(/[^a-z\d@+]/i, "")
     end
 
     def self.search_regex(selectable, regex)

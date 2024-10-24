@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -16,6 +16,8 @@ require "macos_version"
 require "extend/on_system"
 
 class SoftwareSpec
+  include Downloadable
+
   extend Forwardable
   include OnSystem::MacOSAndLinux
 
@@ -34,8 +36,10 @@ class SoftwareSpec
   def_delegators :@resource, :sha256
 
   def initialize(flags: [])
+    super()
+
     # Ensure this is synced with `initialize_dup` and `freeze` (excluding simple objects like integers and booleans)
-    @resource = Resource.new
+    @resource = Resource::Formula.new
     @resources = {}
     @dependency_collector = DependencyCollector.new
     @bottle_specification = BottleSpecification.new
@@ -78,6 +82,11 @@ class SoftwareSpec
     super
   end
 
+  sig { override.returns(String) }
+  def download_type
+    "formula"
+  end
+
   def owner=(owner)
     @name = owner.name
     @full_name = owner.full_name
@@ -87,8 +96,7 @@ class SoftwareSpec
     resources.each_value do |r|
       r.owner = self
       next if r.version
-
-      raise "#{full_name}: version missing for \"#{r.name}\" resource!" if version.nil?
+      next if version.nil?
 
       r.version(version.head? ? Version.new("HEAD") : version.dup)
     end
@@ -127,8 +135,9 @@ class SoftwareSpec
     params(name: String, klass: T.class_of(Resource), block: T.nilable(T.proc.bind(Resource).void))
       .returns(T.nilable(Resource))
   }
-  def resource(name, klass = Resource, &block)
+  def resource(name = T.unsafe(nil), klass = Resource, &block)
     if block
+      raise ArgumentError, "Resource must have a name." if name.nil?
       raise DuplicateResourceError, name if resource_defined?(name)
 
       res = klass.new(name, &block)
@@ -138,12 +147,14 @@ class SoftwareSpec
       dependency_collector.add(res)
       res
     else
+      return @resource if name.nil?
+
       resources.fetch(name) { raise ResourceMissingError.new(owner, name) }
     end
   end
 
   def go_resource(name, &block)
-    odeprecated "`SoftwareSpec#go_resource`", "Go modules"
+    odisabled "`SoftwareSpec#go_resource`", "Go modules"
     resource name, Resource::Go, &block
   end
 
@@ -286,6 +297,8 @@ class HeadSoftwareSpec < SoftwareSpec
 end
 
 class Bottle
+  include Downloadable
+
   class Filename
     attr_reader :name, :version, :tag, :rebuild
 
@@ -339,9 +352,11 @@ class Bottle
   attr_reader :name, :resource, :tag, :cellar, :rebuild
 
   def_delegators :resource, :url, :verify_download_integrity
-  def_delegators :resource, :cached_download
+  def_delegators :resource, :cached_download, :downloader
 
   def initialize(formula, spec, tag = nil)
+    super()
+
     @name = formula.name
     @resource = Resource.new
     @resource.owner = formula
@@ -361,8 +376,15 @@ class Bottle
     root_url(spec.root_url, spec.root_url_specs)
   end
 
-  def fetch(verify_download_integrity: true)
-    @resource.fetch(verify_download_integrity:)
+  sig {
+    override.params(
+      verify_download_integrity: T::Boolean,
+      timeout:                   T.nilable(T.any(Integer, Float)),
+      quiet:                     T.nilable(T::Boolean),
+    ).returns(Pathname)
+  }
+  def fetch(verify_download_integrity: true, timeout: nil, quiet: false)
+    resource.fetch(verify_download_integrity:, timeout:, quiet:)
   rescue DownloadError
     raise unless fallback_on_error
 
@@ -370,6 +392,7 @@ class Bottle
     retry
   end
 
+  sig { override.void }
   def clear_cache
     @resource.clear_cache
     github_packages_manifest_resource&.clear_cache
@@ -385,30 +408,48 @@ class Bottle
     @spec.skip_relocation?(tag: @tag)
   end
 
-  def stage
-    resource.downloader.stage
-  end
+  def stage = downloader.stage
 
-  def fetch_tab
-    return if github_packages_manifest_resource.blank?
+  def fetch_tab(timeout: nil, quiet: false)
+    return unless (resource = github_packages_manifest_resource)
 
-    github_packages_manifest_resource.fetch
-  rescue DownloadError
-    raise unless fallback_on_error
+    begin
+      resource.fetch(timeout:, quiet:)
+    rescue DownloadError
+      raise unless fallback_on_error
 
-    retry
-  rescue ArgumentError
-    raise if @fetch_tab_retried
+      retry
+    rescue Resource::BottleManifest::Error
+      raise if @fetch_tab_retried
 
-    @fetch_tab_retried = true
-    github_packages_manifest_resource.clear_cache
-    retry
+      @fetch_tab_retried = true
+      resource.clear_cache
+      retry
+    end
   end
 
   def tab_attributes
-    return {} unless github_packages_manifest_resource&.downloaded?
+    if (resource = github_packages_manifest_resource) && resource.downloaded?
+      return resource.tab
+    end
 
-    github_packages_manifest_resource.tab
+    {}
+  end
+
+  sig { returns(T.nilable(Integer)) }
+  def bottle_size
+    resource = github_packages_manifest_resource
+    return unless resource&.downloaded?
+
+    resource.bottle_size
+  end
+
+  sig { returns(T.nilable(Integer)) }
+  def installed_size
+    resource = github_packages_manifest_resource
+    return unless resource&.downloaded?
+
+    resource.installed_size
   end
 
   sig { returns(Filename) }
@@ -416,8 +457,7 @@ class Bottle
     Filename.create(resource.owner, @tag, @spec.rebuild)
   end
 
-  private
-
+  sig { returns(T.nilable(Resource::BottleManifest)) }
   def github_packages_manifest_resource
     return if @resource.download_strategy != CurlGitHubPackagesDownloadStrategy
 
@@ -439,6 +479,8 @@ class Bottle
       resource
     end
   end
+
+  private
 
   def select_download_strategy(specs)
     specs[:using] ||= DownloadStrategyDetector.detect(@root_url)

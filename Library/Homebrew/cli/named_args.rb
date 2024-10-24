@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "delegate"
@@ -189,7 +189,18 @@ module Homebrew
               if want_keg_like_cask &&
                  (installed_caskfile = candidate_cask.installed_caskfile) &&
                  installed_caskfile.exist?
-                Cask::CaskLoader.load(installed_caskfile)
+                cask = Cask::CaskLoader.load_from_installed_caskfile(installed_caskfile)
+
+                requested_tap, requested_token = Tap.with_cask_token(name)
+                if requested_tap && requested_token
+                  installed_cask_tap = cask.tab.tap
+
+                  if installed_cask_tap && installed_cask_tap != requested_tap
+                    raise Cask::TapCaskUnavailableError.new(requested_tap, requested_token)
+                  end
+                end
+
+                cask
               else
                 candidate_cask
               end
@@ -220,11 +231,13 @@ module Homebrew
                   Failed to load cask: #{name}
                   #{unreadable_error}
                 EOS
-                opoo package_conflicts_message(name, "formula", cask)
+                opoo package_conflicts_message(name, "formula", cask) unless Context.current.quiet?
               end
               return formula_or_kegs
             elsif cask
-              opoo package_conflicts_message(name, "cask", formula_or_kegs) if formula_or_kegs
+              if formula_or_kegs && !Context.current.quiet?
+                opoo package_conflicts_message(name, "cask", formula_or_kegs)
+              end
               return cask
             end
           end
@@ -313,6 +326,8 @@ module Homebrew
 
       sig { returns(T::Array[Keg]) }
       def to_default_kegs
+        require "missing_formula"
+
         @to_default_kegs ||= begin
           to_formulae_and_casks(only: :formula, method: :default_kegs).freeze
         rescue NoSuchKegError => e
@@ -325,6 +340,8 @@ module Homebrew
 
       sig { returns(T::Array[Keg]) }
       def to_latest_kegs
+        require "missing_formula"
+
         @to_latest_kegs ||= begin
           to_formulae_and_casks(only: :formula, method: :latest_kegs).freeze
         rescue NoSuchKegError => e
@@ -337,6 +354,8 @@ module Homebrew
 
       sig { returns(T::Array[Keg]) }
       def to_kegs
+        require "missing_formula"
+
         @to_kegs ||= begin
           to_formulae_and_casks(only: :formula, method: :kegs).freeze
         rescue NoSuchKegError => e
@@ -399,6 +418,16 @@ module Homebrew
         rack = Formulary.to_rack(name.downcase)
 
         kegs = rack.directory? ? rack.subdirs.map { |d| Keg.new(d) } : []
+
+        requested_tap, requested_formula = Tap.with_formula_name(name)
+        if requested_tap && requested_formula
+          kegs = kegs.select do |keg|
+            keg.tab.tap == requested_tap
+          end
+
+          raise NoSuchKegError.new(requested_formula, tap: requested_tap) if kegs.none?
+        end
+
         raise NoSuchKegError, name if kegs.none?
 
         [rack, kegs]
@@ -463,13 +492,13 @@ module Homebrew
           if package.is_a?(Formula) && (tap = package.tap)
             message += "use #{tap.name}/#{package.name} or "
           end
-          message += "specify the `--formula` flag."
+          message += "specify the `--formula` flag. To silence this message, use the `--cask` flag."
         when Cask::Cask
           message += " For the cask, "
           if (tap = package.tap)
             message += "use #{tap.name}/#{package.token} or "
           end
-          message += "specify the `--cask` flag."
+          message += "specify the `--cask` flag. To silence this message, use the `--formula` flag."
         end
         message.freeze
       end
@@ -492,6 +521,7 @@ module Homebrew
           nil
         end
         return unless available
+        return if Context.current.quiet?
 
         opoo package_conflicts_message(ref, loaded_type, cask)
       end

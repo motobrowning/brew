@@ -182,7 +182,7 @@ RSpec.describe Cask::Audit, :cask do
 
     describe "token validation" do
       let(:strict) { true }
-      let(:only) { ["token_valid"] }
+      let(:only) { ["token"] }
       let(:cask) do
         tmp_cask cask_token.to_s, <<~RUBY
           cask '#{cask_token}' do
@@ -200,7 +200,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "Upper-Case" }
 
         it "fails" do
-          expect(run).to error_with(/lowercase/)
+          expect(run).to error_with(/not contain uppercase/)
         end
       end
 
@@ -208,15 +208,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "ascii⌘" }
 
         it "fails" do
-          expect(run).to error_with(/contains non-ascii characters/)
-        end
-      end
-
-      context "when cask token has +" do
-        let(:cask_token) { "app++" }
-
-        it "fails" do
-          expect(run).to error_with(/\+ should be replaced by -plus-/)
+          expect(run).to error_with(/not contain non-ASCII characters/)
         end
       end
 
@@ -240,7 +232,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app@stuff@beta" }
 
         it "fails" do
-          expect(run).to error_with(/@ unrelated to versioning should be replaced by -at-/)
+          expect(run).to error_with(/not contain multiple @ symbols/)
         end
       end
 
@@ -248,7 +240,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app-@beta" }
 
         it "fails" do
-          expect(run).to error_with(/should not contain a hyphen followed by @/)
+          expect(run).to error_with(/not contain a hyphen followed by an @/)
         end
       end
 
@@ -256,7 +248,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app@-beta" }
 
         it "fails" do
-          expect(run).to error_with(/should not contain @ followed by a hyphen/)
+          expect(run).to error_with(/not contain an @ followed by a hyphen/)
         end
       end
 
@@ -264,23 +256,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app stuff" }
 
         it "fails" do
-          expect(run).to error_with(/whitespace should be replaced by hyphens/)
-        end
-      end
-
-      context "when cask token has underscores" do
-        let(:cask_token) { "app_stuff" }
-
-        it "fails" do
-          expect(run).to error_with(/underscores should be replaced by hyphens/)
-        end
-      end
-
-      context "when cask token has non-alphanumeric characters" do
-        let(:cask_token) { "app(stuff)" }
-
-        it "fails" do
-          expect(run).to error_with(/alphanumeric characters, hyphens and @/)
+          expect(run).to error_with(/not contain whitespace/)
         end
       end
 
@@ -288,7 +264,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app--stuff" }
 
         it "fails" do
-          expect(run).to error_with(/should not contain double hyphens/)
+          expect(run).to error_with(/not contain double hyphens/)
         end
       end
 
@@ -296,7 +272,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "-app" }
 
         it "fails" do
-          expect(run).to error_with(/should not have leading or trailing hyphens/)
+          expect(run).to error_with(/not contain a leading hyphen/)
         end
       end
 
@@ -304,7 +280,7 @@ RSpec.describe Cask::Audit, :cask do
         let(:cask_token) { "app-" }
 
         it "fails" do
-          expect(run).to error_with(/should not have leading or trailing hyphens/)
+          expect(run).to error_with(/not contain a trailing hyphen/)
         end
       end
     end
@@ -972,36 +948,6 @@ RSpec.describe Cask::Audit, :cask do
       end
     end
 
-    describe "url checks" do
-      let(:only) { %w[unnecessary_verified missing_verified no_match] }
-
-      context "with a block" do
-        let(:cask_token) { "booby-trap" }
-
-        context "when loading the cask" do
-          it "does not evaluate the block" do
-            expect { cask }.not_to raise_error
-          end
-        end
-
-        context "when doing an offline audit" do
-          let(:online) { false }
-
-          it "does not evaluate the block" do
-            expect(run).not_to error_with(/Boom/)
-          end
-        end
-
-        context "when doing and online audit" do
-          let(:online) { true }
-
-          it "evaluates the block" do
-            expect(run).to error_with(/Boom/)
-          end
-        end
-      end
-    end
-
     describe "token conflicts" do
       let(:only) { ["token_conflicts"] }
       let(:cask_token) { "with-binary" }
@@ -1195,34 +1141,51 @@ RSpec.describe Cask::Audit, :cask do
 
         it { is_expected.to error_with(/a homepage stanza is required/) }
       end
+    end
 
-      context "when url is lazy" do
-        let(:strict) { true }
-        let(:cask_token) { "with-lazy" }
+    describe "checking deprecate/disable" do
+      let(:only) { ["deprecate_disable"] }
+      let(:cask_token) { "deprecated-cask" }
+
+      context "when deprecate/disable is used with a valid reason" do
         let(:cask) do
           tmp_cask cask_token.to_s, <<~RUBY
             cask '#{cask_token}' do
-              version '1.8.0_72,8.13.0.5'
-              sha256 '8dd95daa037ac02455435446ec7bc737b34567afe9156af7d20b2a83805c1d8a'
-              url do
-                ['https://brew.sh/foo.zip', {referer: 'https://example.com', cookies: {'foo' => 'bar'}}]
-              end
-              name 'Audit'
-              desc 'Audit Description'
-              homepage 'https://brew.sh'
-              app 'Audit.app'
+              version "1.0"
+                sha256 "8dd95daa037ac02455435446ec7bc737b34567afe9156af7d20b2a83805c1d8a"
+                url "https://brew.sh/foo.zip"
+                name "Audit"
+                desc "Cask Auditor"
+                homepage "https://brew.sh/"
+                app "Audit.app"
+                deprecate! date: "2021-01-01", because: :foobar
             end
           RUBY
         end
 
-        it { is_expected.to pass }
+        it "fails" do
+          expect(run).to error_with(/foobar is not a valid deprecate! or disable! reason/)
+        end
+      end
 
-        it "receives a referer" do
-          expect(audit.cask.url.referer).to eq "https://example.com"
+      context "when deprecate/disable is used with an invalid reason" do
+        let(:cask) do
+          tmp_cask cask_token.to_s, <<~RUBY
+            cask '#{cask_token}' do
+              version "1.0"
+                sha256 "8dd95daa037ac02455435446ec7bc737b34567afe9156af7d20b2a83805c1d8a"
+                url "https://brew.sh/foo.zip"
+                name "Audit"
+                desc "Cask Auditor"
+                homepage "https://brew.sh/"
+                app "Audit.app"
+                disable! date: "2021-01-01", because: :discontinued
+            end
+          RUBY
         end
 
-        it "receives cookies" do
-          expect(audit.cask.url.cookies).to eq "foo" => "bar"
+        it "passes" do
+          expect(run).to pass
         end
       end
     end

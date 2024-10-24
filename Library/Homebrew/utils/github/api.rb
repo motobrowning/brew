@@ -1,14 +1,12 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "system_command"
-require "tempfile"
-require "utils/shell"
-require "utils/formatter"
-require "utils/uid"
 
 module GitHub
   def self.pat_blurb(scopes = ALL_SCOPES)
+    require "utils/formatter"
+    require "utils/shell"
     <<~EOS
       Create a GitHub personal access token:
         #{Formatter.url(
@@ -82,7 +80,7 @@ module GitHub
     class AuthenticationFailedError < Error
       def initialize(credentials_type, github_message)
         @github_message = github_message
-        message = +"GitHub API Error: #{github_message}\n"
+        message = "GitHub API Error: #{github_message}\n"
         message << case credentials_type
         when :github_cli_token
           <<~EOS
@@ -97,6 +95,7 @@ module GitHub
               printf "protocol=https\\nhost=github.com\\n" | git credential-osxkeychain erase
           EOS
         when :env_token
+          require "utils/formatter"
           <<~EOS
             HOMEBREW_GITHUB_API_TOKEN may be invalid or expired; check:
               #{Formatter.url("https://github.com/settings/tokens")}
@@ -136,15 +135,25 @@ module GitHub
       JSON::ParserError,
     ].freeze
 
+    sig { returns(T.nilable(String)) }
+    private_class_method def self.uid_home
+      require "etc"
+      Etc.getpwuid(Process.uid)&.dir
+    rescue ArgumentError
+      # Cover for misconfigured NSS setups
+      nil
+    end
+
     # Gets the token from the GitHub CLI for github.com.
     sig { returns(T.nilable(String)) }
     def self.github_cli_token
+      require "utils/uid"
       Utils::UID.drop_euid do
         # Avoid `Formula["gh"].opt_bin` so this method works even with `HOMEBREW_DISABLE_LOAD_FORMULA`.
         env = {
           "PATH" => PATH.new(HOMEBREW_PREFIX/"opt/gh/bin", ENV.fetch("PATH")),
-          "HOME" => Etc.getpwuid(Process.uid)&.dir,
-        }
+          "HOME" => uid_home,
+        }.compact
         gh_out, _, result = system_command "gh",
                                            args:         ["auth", "token", "--hostname", "github.com"],
                                            env:,
@@ -159,16 +168,18 @@ module GitHub
     # but only if that password looks like a GitHub Personal Access Token.
     sig { returns(T.nilable(String)) }
     def self.keychain_username_password
+      require "utils/uid"
       Utils::UID.drop_euid do
         git_credential_out, _, result = system_command "git",
                                                        args:         ["credential-osxkeychain", "get"],
                                                        input:        ["protocol=https\n", "host=github.com\n"],
-                                                       env:          { "HOME" => Etc.getpwuid(Process.uid)&.dir },
+                                                       env:          { "HOME" => uid_home }.compact,
                                                        print_stderr: false
         return unless result.success?
 
-        github_username = git_credential_out[/username=(.+)/, 1]
-        github_password = git_credential_out[/password=(.+)/, 1]
+        git_credential_out.force_encoding("ASCII-8BIT")
+        github_username = git_credential_out[/^username=(.+)/, 1]
+        github_password = git_credential_out[/^password=(.+)/, 1]
         return unless github_username
 
         # Don't use passwords from the keychain unless they look like
@@ -243,6 +254,7 @@ module GitHub
       args += ["--header", "Authorization: token #{token}"] if credentials_type != :none
       args += ["--header", "X-GitHub-Api-Version:2022-11-28"]
 
+      require "tempfile"
       data_tmpfile = nil
       if data
         begin
@@ -270,6 +282,7 @@ module GitHub
 
         args += ["--dump-header", T.must(headers_tmpfile.path)]
 
+        require "utils/curl"
         output, errors, status = Utils::Curl.curl_output("--location", url.to_s, *args, secrets: [token])
         output, _, http_code = output.rpartition("\n")
         output, _, http_code = output.rpartition("\n") if http_code == "000"
@@ -335,13 +348,15 @@ module GitHub
 
     sig {
       params(
-        query:     String,
-        variables: T.nilable(T::Hash[Symbol, T.untyped]),
-        _block:    T.proc.params(data: T::Hash[String, T.untyped]).returns(T::Hash[String, T.untyped]),
+        query:        String,
+        variables:    T.nilable(T::Hash[Symbol, T.untyped]),
+        scopes:       T::Array[String],
+        raise_errors: T::Boolean,
+        _block:       T.proc.params(data: T::Hash[String, T.untyped]).returns(T::Hash[String, T.untyped]),
       ).void
     }
-    def self.paginate_graphql(query, variables: nil, &_block)
-      result = API.open_graphql(query, variables:)
+    def self.paginate_graphql(query, variables: nil, scopes: [].freeze, raise_errors: true, &_block)
+      result = API.open_graphql(query, variables:, scopes:, raise_errors:)
 
       has_next_page = T.let(true, T::Boolean)
       variables ||= {}
@@ -350,7 +365,7 @@ module GitHub
         has_next_page = page_info["hasNextPage"]
         if has_next_page
           variables[:after] = page_info["endCursor"]
-          result = API.open_graphql(query, variables:)
+          result = API.open_graphql(query, variables:, scopes:, raise_errors:)
         end
       end
     end

@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "forwardable"
@@ -10,7 +10,6 @@ module RuboCop
       # @see https://docs.brew.sh/Cask-Cookbook#stanza-order
       class StanzaOrder < Base
         include IgnoredNode
-        extend Forwardable
         extend AutoCorrector
         include CaskHelp
 

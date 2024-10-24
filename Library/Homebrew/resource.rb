@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "downloadable"
@@ -9,7 +9,8 @@ require "extend/on_system"
 # Resource is the fundamental representation of an external resource. The
 # primary formula download, along with other declared resources, are instances
 # of this class.
-class Resource < Downloadable
+class Resource
+  include Downloadable
   include FileUtils
   include OnSystem::MacOSAndLinux
 
@@ -140,7 +141,15 @@ class Resource < Downloadable
     Partial.new(self, files)
   end
 
-  def fetch(verify_download_integrity: true)
+  sig {
+    override
+      .params(
+        verify_download_integrity: T::Boolean,
+        timeout:                   T.nilable(T.any(Integer, Float)),
+        quiet:                     T::Boolean,
+      ).returns(Pathname)
+  }
+  def fetch(verify_download_integrity: true, timeout: nil, quiet: false)
     fetch_patches
 
     super
@@ -194,7 +203,7 @@ class Resource < Downloadable
     @download_strategy = @url.download_strategy
   end
 
-  sig { params(val: T.nilable(T.any(String, Version))).returns(T.nilable(Version)) }
+  sig { override.params(val: T.nilable(T.any(String, Version))).returns(T.nilable(Version)) }
   def version(val = nil)
     return super() if val.nil?
 
@@ -211,7 +220,7 @@ class Resource < Downloadable
   end
 
   def patch(strip = :p1, src = nil, &block)
-    p = Patch.create(strip, src, &block)
+    p = ::Patch.create(strip, src, &block)
     patches << p
   end
 
@@ -260,6 +269,27 @@ class Resource < Downloadable
     [*extra_urls, *super].uniq
   end
 
+  # A local resource that doesn't need to be downloaded.
+  class Local < Resource
+    def initialize(path)
+      super(File.basename(path))
+      @downloader = LocalBottleDownloadStrategy.new(path)
+    end
+  end
+
+  # A resource for a formula.
+  class Formula < Resource
+    sig { override.returns(String) }
+    def name
+      T.must(owner).name
+    end
+
+    sig { override.returns(String) }
+    def download_name
+      name
+    end
+  end
+
   # A resource containing a Go package.
   class Go < Resource
     def stage(target, &block)
@@ -276,16 +306,40 @@ class Resource < Downloadable
     def initialize(bottle)
       super("#{bottle.name}_bottle_manifest")
       @bottle = bottle
+      @manifest_annotations = nil
     end
 
     def verify_download_integrity(_filename)
       # We don't have a checksum, but we can at least try parsing it.
       tab
-    rescue Error => e
-      raise DownloadError.new(self, e)
     end
 
     def tab
+      tab = manifest_annotations["sh.brew.tab"]
+      raise Error, "Couldn't find tab from manifest." if tab.blank?
+
+      begin
+        JSON.parse(tab)
+      rescue JSON::ParserError
+        raise Error, "Couldn't parse tab JSON."
+      end
+    end
+
+    sig { returns(T.nilable(Integer)) }
+    def bottle_size
+      manifest_annotations["sh.brew.bottle.size"]&.to_i
+    end
+
+    sig { returns(T.nilable(Integer)) }
+    def installed_size
+      manifest_annotations["sh.brew.bottle.installed_size"]&.to_i
+    end
+
+    private
+
+    def manifest_annotations
+      return @manifest_annotations unless @manifest_annotations.nil?
+
       json = begin
         JSON.parse(cached_download.read)
       rescue JSON::ParserError
@@ -308,19 +362,12 @@ class Resource < Downloadable
       end
       raise Error, "Couldn't find manifest matching bottle checksum." if manifest_annotations.blank?
 
-      tab = manifest_annotations["sh.brew.tab"]
-      raise Error, "Couldn't find tab from manifest." if tab.blank?
-
-      begin
-        JSON.parse(tab)
-      rescue JSON::ParserError
-        raise Error, "Couldn't parse tab JSON."
-      end
+      @manifest_annotations = manifest_annotations
     end
   end
 
   # A resource containing a patch.
-  class PatchResource < Resource
+  class Patch < Resource
     attr_reader :patch_files
 
     def initialize(&block)

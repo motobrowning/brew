@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "utils/bottles"
@@ -295,6 +295,7 @@ module Homebrew
 
         cleanup_cache
         cleanup_empty_api_source_directories
+        cleanup_bootsnap
         cleanup_logs
         cleanup_lockfiles
         cleanup_python_site_packages
@@ -314,7 +315,6 @@ module Homebrew
         return if periodic
 
         cleanup_portable_ruby
-        cleanup_bootsnap
       else
         args.each do |arg|
           formula = begin
@@ -372,7 +372,7 @@ module Homebrew
       logs_days = [days, CLEANUP_DEFAULT_DAYS].min
 
       HOMEBREW_LOGS.subdirs.each do |dir|
-        cleanup_path(dir) { dir.rmtree } if self.class.prune?(dir, logs_days)
+        cleanup_path(dir) { FileUtils.rm_r(dir) } if self.class.prune?(dir, logs_days)
       end
     end
 
@@ -411,7 +411,7 @@ module Homebrew
       (downloads - referenced_downloads).each do |download|
         if self.class.incomplete?(download)
           begin
-            LockFile.new(download.basename).with_lock do
+            DownloadLock.new(download).with_lock do
               download.unlink
             end
           rescue OperationInProgressError
@@ -518,7 +518,7 @@ module Homebrew
       end
 
       portable_rubies_to_remove.each do |portable_ruby|
-        cleanup_path(portable_ruby) { portable_ruby.rmtree }
+        cleanup_path(portable_ruby) { FileUtils.rm_r(portable_ruby) }
       end
     end
 
@@ -528,9 +528,11 @@ module Homebrew
 
     def cleanup_bootsnap
       bootsnap = cache/"bootsnap"
-      return unless bootsnap.exist?
+      return unless bootsnap.directory?
 
-      cleanup_path(bootsnap) { bootsnap.rmtree }
+      bootsnap.each_child do |subdir|
+        cleanup_path(subdir) { FileUtils.rm_r(subdir) } if subdir.basename.to_s != Homebrew.bootsnap_key
+      end
     end
 
     def cleanup_cache_db(rack = nil)
@@ -553,7 +555,7 @@ module Homebrew
     end
 
     def rm_ds_store(dirs = nil)
-      dirs ||= Keg::MUST_EXIST_DIRECTORIES + [
+      dirs ||= Keg.must_exist_directories + [
         HOMEBREW_PREFIX/"Caskroom",
       ]
       dirs.select(&:directory?)
@@ -621,7 +623,7 @@ module Homebrew
       dirs = []
       children_count = {}
 
-      Keg::MUST_EXIST_SUBDIRECTORIES.each do |dir|
+      Keg.must_exist_subdirectories.each do |dir|
         next unless dir.directory?
 
         dir.find do |path|
@@ -637,7 +639,7 @@ module Homebrew
                 path.unlink
               end
             end
-          elsif path.directory? && Keg::MUST_EXIST_SUBDIRECTORIES.exclude?(path)
+          elsif path.directory? && Keg.must_exist_subdirectories.exclude?(path)
             dirs << path
             children_count[path] = path.children.length if dry_run?
           end

@@ -2,13 +2,13 @@
 # frozen_string_literal: true
 
 require "abstract_command"
+require "shell_command"
 
-# This Ruby command exists to allow generation of completions for the Bash
-# version.
-# It is not meant to be run.
 module Homebrew
   module Cmd
     class Repository < AbstractCommand
+      include ShellCommand
+
       sig { override.returns(String) }
       def self.command_name = "--repository"
 
@@ -20,15 +20,6 @@ module Homebrew
         EOS
 
         named_args :tap
-
-        hide_from_man_page!
-      end
-
-      sig { override.void }
-      def run
-        raise StandardError,
-              "This command is just here for completions generation. " \
-              "It's actually defined in `cmd/--repository.sh` instead."
       end
     end
   end

@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "utils/user"
@@ -47,7 +47,7 @@ module Cask
       gain_permissions(path, permission_flags, command) do |p|
         if p.parent.writable?
           if directory
-            p.rmtree
+            FileUtils.rm_r p
           else
             FileUtils.rm_f p
           end
@@ -128,7 +128,7 @@ module Cask
     end
 
     def self.method_missing_message(method, token, section = nil)
-      message = +"Unexpected method '#{method}' called "
+      message = "Unexpected method '#{method}' called "
       message << "during #{section} " if section
       message << "on Cask #{token}."
 

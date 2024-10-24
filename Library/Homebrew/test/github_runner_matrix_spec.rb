@@ -9,10 +9,14 @@ RSpec.describe GitHubRunnerMatrix do
     allow(ENV).to receive(:fetch).with("HOMEBREW_MACOS_LONG_TIMEOUT", "false").and_return("false")
     allow(ENV).to receive(:fetch).with("HOMEBREW_MACOS_BUILD_ON_GITHUB_RUNNER", "false").and_return("false")
     allow(ENV).to receive(:fetch).with("GITHUB_RUN_ID").and_return("12345")
+    allow(ENV).to receive(:fetch).with("HOMEBREW_NO_INSTALL_FROM_API", nil).and_call_original
+    allow(ENV).to receive(:fetch).with("HOMEBREW_EVAL_ALL", nil).and_call_original
+    allow(ENV).to receive(:fetch).with("HOMEBREW_SIMULATE_MACOS_ON_LINUX", nil).and_call_original
+    allow(ENV).to receive(:fetch).with("HOMEBREW_FORBID_PACKAGES_FROM_PATHS", nil).and_call_original
   end
 
   let(:newest_supported_macos) do
-    MacOSVersion::SYMBOLS.find { |_, v| !MacOSVersion.new(v).prerelease? }
+    MacOSVersion::SYMBOLS.find { |k, _| k == described_class::NEWEST_HOMEBREW_CORE_MACOS_RUNNER }
   end
 
   let(:testball) { TestRunnerFormula.new(Testball.new) }
@@ -135,7 +139,7 @@ RSpec.describe GitHubRunnerMatrix do
 
           expect(runner_matrix.runners.all?(&:active)).to be(false)
           expect(runner_matrix.runners.any?(&:active)).to be(true)
-          expect(get_runner_names(runner_matrix).sort).to eq(["Linux", "macOS #{v}-arm64", "macOS #{v}-x86_64"])
+          expect(get_runner_names(runner_matrix).sort).to eq(["Linux", "macOS #{v}-arm64"])
         end
       end
     end

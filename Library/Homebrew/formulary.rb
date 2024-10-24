@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "digest/sha2"
@@ -592,6 +592,8 @@ module Formulary
         .returns(T.nilable(T.attached_class))
     }
     def self.try_new(ref, from: T.unsafe(nil), warn: false)
+      return if Homebrew::EnvConfig.forbid_packages_from_paths?
+
       ref = ref.to_s
 
       new(ref) if HOMEBREW_BOTTLES_EXTNAME_REGEX.match?(ref) && File.exist?(ref)
@@ -643,6 +645,9 @@ module Formulary
       end
 
       return unless path.expand_path.exist?
+
+      return if Homebrew::EnvConfig.forbid_packages_from_paths? &&
+                !path.realpath.to_s.start_with?("#{HOMEBREW_CELLAR}/", "#{HOMEBREW_LIBRARY}/Taps/")
 
       options = if (tap = Tap.from_path(path))
         # Only treat symlinks in taps as aliases.
@@ -696,9 +701,22 @@ module Formulary
         .returns(T.nilable(T.attached_class))
     }
     def self.try_new(ref, from: T.unsafe(nil), warn: false)
-      ref = ref.to_s
+      return if Homebrew::EnvConfig.forbid_packages_from_paths?
 
-      new(ref, from:) if URI(ref).scheme.present?
+      # Cache compiled regex
+      @uri_regex ||= begin
+        uri_regex = ::URI::DEFAULT_PARSER.make_regexp
+        Regexp.new("\\A#{uri_regex.source}\\Z", uri_regex.options)
+      end
+
+      uri = ref.to_s
+      return unless uri.match?(@uri_regex)
+
+      uri = URI(uri)
+      return unless uri.path
+      return unless uri.scheme.present?
+
+      new(uri, from:)
     end
 
     attr_reader :url

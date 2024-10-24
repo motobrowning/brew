@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -411,7 +411,7 @@ module Cask
     end
 
     def discontinued?
-      odeprecated "`discontinued?`", "`deprecated?` or `disabled?`"
+      odisabled "`discontinued?`", "`deprecated?` or `disabled?`"
       @caveats&.discontinued? == true
     end
 

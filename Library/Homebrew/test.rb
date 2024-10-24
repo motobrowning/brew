@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 raise "#{__FILE__} must not be loaded via `require`." if $PROGRAM_NAME != __FILE__
@@ -11,7 +11,7 @@ require "timeout"
 require "formula_assertions"
 require "formula_free_port"
 require "fcntl"
-require "socket"
+require "utils/socket"
 require "cli/parser"
 require "dev-cmd/test"
 require "json/add/exception"
@@ -19,10 +19,11 @@ require "json/add/exception"
 TEST_TIMEOUT_SECONDS = 5 * 60
 
 begin
+  ENV.delete("HOMEBREW_FORBID_PACKAGES_FROM_PATHS")
   args = Homebrew::DevCmd::Test.new.args
   Context.current = args.context
 
-  error_pipe = UNIXSocket.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
+  error_pipe = Utils::UNIXSocketExt.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
   error_pipe.fcntl(Fcntl::F_SETFD, Fcntl::FD_CLOEXEC)
 
   trap("INT", old_trap)
@@ -35,7 +36,7 @@ begin
   formula = T.must(args.named.to_resolved_formulae.first)
   formula.extend(Homebrew::Assertions)
   formula.extend(Homebrew::FreePort)
-  if args.debug?
+  if args.debug? && !Homebrew::EnvConfig.disable_debrew?
     require "debrew"
     formula.extend(Debrew::Formula)
   end

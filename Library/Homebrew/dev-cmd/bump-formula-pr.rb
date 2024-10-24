@@ -4,6 +4,7 @@
 require "abstract_command"
 require "fileutils"
 require "formula"
+require "utils/inreplace"
 require "utils/pypi"
 require "utils/tar"
 
@@ -128,12 +129,12 @@ module Homebrew
         # spamming during normal output.
         Homebrew.install_bundler_gems!(groups: ["audit", "style"]) unless args.no_audit?
 
-        tap_remote_repo = formula.tap.full_name || formula.tap.remote_repo
+        tap_remote_repo = formula.tap.remote_repository
         remote = "origin"
         remote_branch = formula.tap.git_repository.origin_branch_name
         previous_branch = "-"
 
-        check_open_pull_requests(formula, tap_remote_repo)
+        check_pull_requests(formula, tap_remote_repo, state: "open")
 
         new_version = args.version
         check_new_version(formula, tap_remote_repo, version: new_version) if new_version.present?
@@ -464,16 +465,21 @@ module Homebrew
         end
       end
 
-      sig { params(formula: Formula, tap_remote_repo: String).returns(T.nilable(T::Array[String])) }
-      def check_open_pull_requests(formula, tap_remote_repo)
+      sig {
+        params(formula: Formula, tap_remote_repo: String, state: T.nilable(String),
+               version: T.nilable(String)).void
+      }
+      def check_pull_requests(formula, tap_remote_repo, state: nil, version: nil)
         tap = formula.tap
         return if tap.nil?
 
+        # if we haven't already found open requests, try for an exact match across all pull requests
         GitHub.check_for_duplicate_pull_requests(
           formula.name, tap_remote_repo,
-          state: "open",
-          file:  formula.path.relative_path_from(tap.path).to_s,
-          quiet: args.quiet?
+          version:,
+          state:,
+          file:    formula.path.relative_path_from(tap.path).to_s,
+          quiet:   args.quiet?
         )
       end
 
@@ -492,7 +498,7 @@ module Homebrew
         end
 
         check_throttle(formula, version)
-        check_closed_pull_requests(formula, tap_remote_repo, version:)
+        check_pull_requests(formula, tap_remote_repo, version:)
       end
 
       sig { params(formula: Formula, new_version: String).void }
@@ -501,34 +507,12 @@ module Homebrew
         return if tap.nil?
 
         throttled_rate = formula.livecheck.throttle
-        throttled_rate ||= if (rate = tap.audit_exceptions.dig(:throttled_formulae, formula.name))
-          odisabled "throttled_formulae.json", "Livecheck#throttle"
-          rate
-        end
         return if throttled_rate.blank?
 
         formula_suffix = Version.new(new_version).patch.to_i
         return if formula_suffix.modulo(throttled_rate).zero?
 
         odie "#{formula} should only be updated every #{throttled_rate} releases on multiples of #{throttled_rate}"
-      end
-
-      sig {
-        params(formula: Formula, tap_remote_repo: String,
-               version: T.nilable(String)).returns(T.nilable(T::Array[String]))
-      }
-      def check_closed_pull_requests(formula, tap_remote_repo, version:)
-        tap = formula.tap
-        return if tap.nil?
-
-        # if we haven't already found open requests, try for an exact match across closed requests
-        GitHub.check_for_duplicate_pull_requests(
-          formula.name, tap_remote_repo,
-          version:,
-          state:   "closed",
-          file:    formula.path.relative_path_from(tap.path).to_s,
-          quiet:   args.quiet?
-        )
       end
 
       sig { params(formula: Formula, new_formula_version: Version).returns(T.nilable(T::Array[String])) }

@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "resource"
@@ -106,7 +106,7 @@ class ExternalPatch
 
   def initialize(strip, &block)
     @strip    = strip
-    @resource = Resource::PatchResource.new(&block)
+    @resource = Resource::Patch.new(&block)
   end
 
   sig { returns(T::Boolean) }

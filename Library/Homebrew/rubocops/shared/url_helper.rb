@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "rubocops/shared/helper_functions"
@@ -241,7 +241,7 @@ module RuboCop
         audit_urls(urls, zip_gh_pattern) do |_, url|
           next if url.match? %r{raw.githubusercontent.com/.*/.*/(main|master|HEAD)/}
           next if url.include?("releases/download")
-          next if url.include?("desktop.githubusercontent.com/github-desktop/releases/")
+          next if url.include?("desktop.githubusercontent.com/releases/")
 
           problem "Use GitHub tarballs rather than zipballs (url is #{url})."
         end

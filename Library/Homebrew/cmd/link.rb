@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "abstract_command"
@@ -89,7 +89,7 @@ module Homebrew
               caveats = Caveats.new(formula)
               opoo <<~EOS
                 Refusing to link macOS provided/shadowed software: #{keg.name}
-                #{caveats.keg_only_text(skip_reason: true).strip}
+                #{T.must(caveats.keg_only_text(skip_reason: true)).strip}
               EOS
               next
             end
@@ -123,6 +123,7 @@ module Homebrew
 
       private
 
+      sig { params(keg: Keg).void }
       def puts_keg_only_path_message(keg)
         bin = keg/"bin"
         sbin = keg/"sbin"

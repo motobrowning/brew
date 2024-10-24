@@ -7,37 +7,12 @@ require "livecheck/livecheck_version"
 require "livecheck/skip_conditions"
 require "livecheck/strategy"
 require "addressable"
-require "uri"
 
 module Homebrew
   # The {Livecheck} module consists of methods used by the `brew livecheck`
   # command. These methods print the requested livecheck information
   # for formulae.
   module Livecheck
-    module_function
-
-    GITEA_INSTANCES = T.let(%w[
-      codeberg.org
-      gitea.com
-      opendev.org
-      tildegit.org
-    ].freeze, T::Array[String])
-
-    GOGS_INSTANCES = T.let(%w[
-      lolg.it
-    ].freeze, T::Array[String])
-
-    STRATEGY_SYMBOLS_TO_SKIP_PREPROCESS_URL = T.let([
-      :extract_plist,
-      :github_latest,
-      :header_match,
-      :json,
-      :page_match,
-      :sparkle,
-      :xml,
-      :yaml,
-    ].freeze, T::Array[Symbol])
-
     UNSTABLE_VERSION_KEYWORDS = T.let(%w[
       alpha
       beta
@@ -48,9 +23,10 @@ module Homebrew
       preview
       rc
     ].freeze, T::Array[String])
+    private_constant :UNSTABLE_VERSION_KEYWORDS
 
     sig { returns(T::Hash[T::Class[T.anything], String]) }
-    def livecheck_strategy_names
+    private_class_method def self.livecheck_strategy_names
       return T.must(@livecheck_strategy_names) if defined?(@livecheck_strategy_names)
 
       # Cache demodulized strategy names, to avoid repeating this work
@@ -67,7 +43,7 @@ module Homebrew
     # Uses `formulae_and_casks_to_check` to identify taps in use other than
     # homebrew/core and homebrew/cask and loads strategies from them.
     sig { params(formulae_and_casks_to_check: T::Array[T.any(Formula, Cask::Cask)]).void }
-    def load_other_tap_strategies(formulae_and_casks_to_check)
+    def self.load_other_tap_strategies(formulae_and_casks_to_check)
       other_taps = {}
       formulae_and_casks_to_check.each do |formula_or_cask|
         next if formula_or_cask.tap.blank?
@@ -96,7 +72,7 @@ module Homebrew
         debug:                 T::Boolean,
       ).returns(T.nilable(T::Array[T.untyped]))
     }
-    def resolve_livecheck_reference(
+    def self.resolve_livecheck_reference(
       formula_or_cask,
       first_formula_or_cask = formula_or_cask,
       references = [],
@@ -171,7 +147,7 @@ module Homebrew
         verbose:                     T::Boolean,
       ).void
     }
-    def run_checks(
+    def self.run_checks(
       formulae_and_casks_to_check,
       full_name: false, handle_name_conflict: false, check_resources: false, json: false, newer_only: false,
       extract_plist: false, debug: false, quiet: false, verbose: false
@@ -270,7 +246,7 @@ module Homebrew
         # comparison.
         current = if formula
           if formula.head_only?
-            formula.any_installed_version.version.commit
+            Version.new(formula.any_installed_version.version.commit)
           else
             T.must(formula.stable).version
           end
@@ -282,7 +258,7 @@ module Homebrew
         current = LivecheckVersion.create(formula_or_cask, current)
 
         latest = if formula&.head_only?
-          T.must(formula.head).downloader.fetch_last_commit
+          Version.new(T.must(formula.head).downloader.fetch_last_commit)
         else
           version_info = latest_version(
             formula_or_cask,
@@ -409,7 +385,10 @@ module Homebrew
           name += " (cask)" if ambiguous_casks.include?(formula_or_cask)
 
           onoe "#{Tty.blue}#{name}#{Tty.reset}: #{e}"
-          $stderr.puts Utils::Backtrace.clean(e) if debug && !e.is_a?(Livecheck::Error)
+          if debug && !e.is_a?(Livecheck::Error)
+            require "utils/backtrace"
+            $stderr.puts Utils::Backtrace.clean(e)
+          end
           print_resources_info(resource_version_info, verbose:) if check_for_resources
           nil
         end
@@ -430,7 +409,7 @@ module Homebrew
     end
 
     sig { params(package_or_resource: T.any(Formula, Cask::Cask, Resource), full_name: T::Boolean).returns(String) }
-    def package_or_resource_name(package_or_resource, full_name: false)
+    def self.package_or_resource_name(package_or_resource, full_name: false)
       case package_or_resource
       when Formula
         formula_name(package_or_resource, full_name:)
@@ -446,14 +425,14 @@ module Homebrew
     # Returns the fully-qualified name of a cask if the `full_name` argument is
     # provided; returns the name otherwise.
     sig { params(cask: Cask::Cask, full_name: T::Boolean).returns(String) }
-    def cask_name(cask, full_name: false)
+    private_class_method def self.cask_name(cask, full_name: false)
       full_name ? cask.full_name : cask.token
     end
 
     # Returns the fully-qualified name of a formula if the `full_name` argument is
     # provided; returns the name otherwise.
     sig { params(formula: Formula, full_name: T::Boolean).returns(String) }
-    def formula_name(formula, full_name: false)
+    private_class_method def self.formula_name(formula, full_name: false)
       full_name ? formula.full_name : formula.name
     end
 
@@ -466,7 +445,7 @@ module Homebrew
         verbose:             T::Boolean,
       ).returns(T::Hash[Symbol, T.untyped])
     }
-    def status_hash(package_or_resource, status_str, messages = nil, full_name: false, verbose: false)
+    def self.status_hash(package_or_resource, status_str, messages = nil, full_name: false, verbose: false)
       formula = package_or_resource if package_or_resource.is_a?(Formula)
       cask = package_or_resource if package_or_resource.is_a?(Cask::Cask)
       resource = package_or_resource if package_or_resource.is_a?(Resource)
@@ -492,7 +471,7 @@ module Homebrew
 
     # Formats and prints the livecheck result for a formula/cask/resource.
     sig { params(info: T::Hash[Symbol, T.untyped], verbose: T::Boolean, ambiguous_cask: T::Boolean).void }
-    def print_latest_version(info, verbose: false, ambiguous_cask: false)
+    private_class_method def self.print_latest_version(info, verbose: false, ambiguous_cask: false)
       package_or_resource_s = info[:resource].present? ? "  " : ""
       package_or_resource_s += "#{Tty.blue}#{info[:formula] || info[:cask] || info[:resource]}#{Tty.reset}"
       package_or_resource_s += " (cask)" if ambiguous_cask
@@ -515,7 +494,7 @@ module Homebrew
 
     # Prints the livecheck result for the resources of a given Formula.
     sig { params(info: T::Array[T::Hash[Symbol, T.untyped]], verbose: T::Boolean).void }
-    def print_resources_info(info, verbose: false)
+    private_class_method def self.print_resources_info(info, verbose: false)
       info.each do |r_info|
         if r_info[:status] && r_info[:messages]
           SkipConditions.print_skip_information(r_info)
@@ -531,7 +510,7 @@ module Homebrew
         package_or_resource: T.any(Formula, Cask::Cask, Resource),
       ).returns(T.nilable(String))
     }
-    def livecheck_url_to_string(livecheck_url, package_or_resource)
+    def self.livecheck_url_to_string(livecheck_url, package_or_resource)
       case livecheck_url
       when String
         livecheck_url
@@ -546,7 +525,7 @@ module Homebrew
 
     # Returns an Array containing the formula/cask/resource URLs that can be used by livecheck.
     sig { params(package_or_resource: T.any(Formula, Cask::Cask, Resource)).returns(T::Array[String]) }
-    def checkable_urls(package_or_resource)
+    def self.checkable_urls(package_or_resource)
       urls = []
 
       case package_or_resource
@@ -569,53 +548,11 @@ module Homebrew
       urls.compact.uniq
     end
 
-    # Preprocesses and returns the URL used by livecheck.
-    sig { params(url: String).returns(String) }
-    def preprocess_url(url)
-      begin
-        uri = Addressable::URI.parse url
-      rescue Addressable::URI::InvalidURIError
-        return url
-      end
-
-      host = uri.host
-      path = uri.path
-      return url if host.nil? || path.nil?
-
-      host = "github.com" if host == "github.s3.amazonaws.com"
-      path = path.delete_prefix("/").delete_suffix(".git")
-      scheme = uri.scheme
-
-      if host == "github.com"
-        return url if path.match? %r{/releases/latest/?$}
-
-        owner, repo = path.delete_prefix("downloads/").split("/")
-        url = "#{scheme}://#{host}/#{owner}/#{repo}.git"
-      elsif GITEA_INSTANCES.include?(host)
-        return url if path.match? %r{/releases/latest/?$}
-
-        owner, repo = path.split("/")
-        url = "#{scheme}://#{host}/#{owner}/#{repo}.git"
-      elsif GOGS_INSTANCES.include?(host)
-        owner, repo = path.split("/")
-        url = "#{scheme}://#{host}/#{owner}/#{repo}.git"
-      # sourcehut
-      elsif host == "git.sr.ht"
-        owner, repo = path.split("/")
-        url = "#{scheme}://#{host}/#{owner}/#{repo}"
-      # GitLab (gitlab.com or self-hosted)
-      elsif path.include?("/-/archive/")
-        url = url.sub(%r{/-/archive/.*$}i, ".git")
-      end
-
-      url
-    end
-
     # livecheck should fetch a URL using brewed curl if the formula/cask
     # contains a `stable`/`url` or `head` URL `using: :homebrew_curl` that
     # shares the same root domain.
     sig { params(formula_or_cask: T.any(Formula, Cask::Cask), url: String).returns(T::Boolean) }
-    def use_homebrew_curl?(formula_or_cask, url)
+    def self.use_homebrew_curl?(formula_or_cask, url)
       url_root_domain = Addressable::URI.parse(url)&.domain
       return false if url_root_domain.blank?
 
@@ -631,7 +568,7 @@ module Homebrew
           homebrew_curl_root_domains << domain if domain.present?
         end
       when Cask::Cask
-        return false if formula_or_cask.url.using != :homebrew_curl
+        return false if formula_or_cask.url&.using != :homebrew_curl
 
         domain = Addressable::URI.parse(formula_or_cask.url.to_s)&.domain
         homebrew_curl_root_domains << domain if domain.present?
@@ -653,7 +590,7 @@ module Homebrew
         debug:                      T::Boolean,
       ).returns(T.nilable(T::Hash[Symbol, T.untyped]))
     }
-    def latest_version(
+    def self.latest_version(
       formula_or_cask,
       referenced_formula_or_cask: nil,
       livecheck_references: [],
@@ -672,13 +609,12 @@ module Homebrew
       livecheck_strategy_block = livecheck.strategy_block || referenced_livecheck&.strategy_block
       livecheck_throttle = livecheck.throttle || referenced_livecheck&.throttle
 
-      livecheck_url_string = livecheck_url_to_string(
-        livecheck_url,
-        referenced_formula_or_cask || formula_or_cask,
-      )
+      referenced_package = referenced_formula_or_cask || formula_or_cask
+
+      livecheck_url_string = livecheck_url_to_string(livecheck_url, referenced_package) if livecheck_url
 
       urls = [livecheck_url_string] if livecheck_url_string
-      urls ||= checkable_urls(referenced_formula_or_cask || formula_or_cask)
+      urls ||= checkable_urls(referenced_package)
 
       if debug
         if formula
@@ -702,23 +638,22 @@ module Homebrew
 
       checked_urls = []
       urls.each_with_index do |original_url, i|
-        # Only preprocess the URL when it's appropriate
-        url = if STRATEGY_SYMBOLS_TO_SKIP_PREPROCESS_URL.include?(livecheck_strategy)
-          original_url
-        else
-          preprocess_url(original_url)
-        end
+        url = original_url
         next if checked_urls.include?(url)
 
         strategies = Strategy.from_url(
           url,
           livecheck_strategy:,
-          url_provided:       livecheck_url.present?,
           regex_provided:     livecheck_regex.present?,
           block_provided:     livecheck_strategy_block.present?,
         )
         strategy = Strategy.from_symbol(livecheck_strategy) || strategies.first
         strategy_name = livecheck_strategy_names[strategy]
+
+        if strategy.respond_to?(:preprocess_url)
+          url = strategy.preprocess_url(url)
+          next if checked_urls.include?(url)
+        end
 
         if debug
           puts
@@ -750,7 +685,7 @@ module Homebrew
 
         homebrew_curl = case strategy_name
         when "PageMatch", "HeaderMatch"
-          use_homebrew_curl?((referenced_formula_or_cask || formula_or_cask), url)
+          use_homebrew_curl?(referenced_package, url)
         end
         puts "Homebrew curl?:   Yes" if debug && homebrew_curl.present?
 
@@ -887,7 +822,7 @@ module Homebrew
         verbose:        T::Boolean,
       ).returns(T::Hash[Symbol, T.untyped])
     }
-    def resource_version(
+    def self.resource_version(
       resource,
       formula_latest,
       json: false,
@@ -919,21 +854,21 @@ module Homebrew
       checked_urls = []
       urls.each_with_index do |original_url, i|
         url = original_url.gsub(Constants::LATEST_VERSION, formula_latest)
-
-        # Only preprocess the URL when it's appropriate
-        url = preprocess_url(url) unless STRATEGY_SYMBOLS_TO_SKIP_PREPROCESS_URL.include?(livecheck_strategy)
-
         next if checked_urls.include?(url)
 
         strategies = Strategy.from_url(
           url,
           livecheck_strategy:,
-          url_provided:       livecheck_url.present?,
           regex_provided:     livecheck_regex.present?,
           block_provided:     livecheck_strategy_block.present?,
         )
         strategy = Strategy.from_symbol(livecheck_strategy) || strategies.first
         strategy_name = livecheck_strategy_names[strategy]
+
+        if strategy.respond_to?(:preprocess_url)
+          url = strategy.preprocess_url(url)
+          next if checked_urls.include?(url)
+        end
 
         if debug
           puts
@@ -1056,7 +991,10 @@ module Homebrew
           status_hash(resource, "error", [e.to_s], verbose:)
         elsif !quiet
           onoe "#{Tty.blue}#{resource.name}#{Tty.reset}: #{e}"
-          $stderr.puts Utils::Backtrace.clean(e) if debug && !e.is_a?(Livecheck::Error)
+          if debug && !e.is_a?(Livecheck::Error)
+            require "utils/backtrace"
+            $stderr.puts Utils::Backtrace.clean(e)
+          end
           nil
         end
       end

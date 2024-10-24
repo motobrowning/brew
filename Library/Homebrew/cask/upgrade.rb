@@ -17,6 +17,7 @@ module Cask
         dry_run:             T.nilable(T::Boolean),
         skip_cask_deps:      T.nilable(T::Boolean),
         verbose:             T.nilable(T::Boolean),
+        quiet:               T.nilable(T::Boolean),
         binaries:            T.nilable(T::Boolean),
         quarantine:          T.nilable(T::Boolean),
         require_sha:         T.nilable(T::Boolean),
@@ -32,6 +33,7 @@ module Cask
       dry_run: false,
       skip_cask_deps: false,
       verbose: false,
+      quiet: false,
       binaries: nil,
       quarantine: nil,
       require_sha: nil
@@ -53,17 +55,19 @@ module Cask
           if cask.outdated?(greedy: true)
             true
           elsif cask.version.latest?
-            opoo "Not upgrading #{cask.token}, the downloaded artifact has not changed"
+            opoo "Not upgrading #{cask.token}, the downloaded artifact has not changed" unless quiet
             false
           else
-            opoo "Not upgrading #{cask.token}, the latest version is already installed"
+            opoo "Not upgrading #{cask.token}, the latest version is already installed" unless quiet
             false
           end
         end
       end
 
       manual_installer_casks = outdated_casks.select do |cask|
-        cask.artifacts.any?(Artifact::Installer::ManualInstaller)
+        cask.artifacts.any? do |artifact|
+          artifact.is_a?(Artifact::Installer) && artifact.manual_install
+        end
       end
 
       if manual_installer_casks.present?

@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "keg"
@@ -92,6 +92,13 @@ class LinkageChecker
     Regexp.last_match(2)
   end
 
+  sig { params(file: String).returns(T::Boolean) }
+  def broken_dylibs_allowed?(file)
+    return false if formula.name != "julia"
+
+    file.start_with?("#{formula.prefix.realpath}/share/julia/compiled/")
+  end
+
   def check_dylibs(rebuild_cache:)
     keg_files_dylibs = nil
 
@@ -108,6 +115,7 @@ class LinkageChecker
       @keg.find do |file|
         next if file.symlink? || file.directory?
         next if !file.dylib? && !file.binary_executable? && !file.mach_o_bundle?
+        next unless file.arch_compatible?(Hardware::CPU.arch)
 
         # weakly loaded dylibs may not actually exist on disk, so skip them
         # when checking for broken linkage
@@ -128,7 +136,7 @@ class LinkageChecker
         if !file_has_any_rpath_dylibs && (dylib.start_with? "@rpath/")
           file_has_any_rpath_dylibs = true
           pathname = Pathname(file)
-          @files_missing_rpaths << file if pathname.rpaths.empty?
+          @files_missing_rpaths << file if pathname.rpaths.empty? && !broken_dylibs_allowed?(file.to_s)
         end
 
         next if checked_dylibs.include? dylib
@@ -152,11 +160,11 @@ class LinkageChecker
 
           if (dep = dylib_to_dep(dylib))
             @broken_deps[dep] |= [dylib]
-          elsif system_libraries_exist_in_cache? && dylib_found_via_dlopen(dylib)
+          elsif system_libraries_exist_in_cache? && dylib_found_in_shared_cache?(dylib)
             # If we cannot associate the dylib with a dependency, then it may be a system library.
-            # If dlopen finds the dylib, then the linkage is not broken.
+            # Check the dylib shared cache for the library to verify this.
             @system_dylibs << dylib
-          elsif !system_framework?(dylib)
+          elsif !system_framework?(dylib) && !broken_dylibs_allowed?(file.to_s)
             @broken_dylibs << dylib
           end
         else
@@ -187,16 +195,23 @@ class LinkageChecker
   end
   alias generic_system_libraries_exist_in_cache? system_libraries_exist_in_cache?
 
-  def dylib_found_via_dlopen(dylib)
-    Fiddle.dlopen(dylib).close
-    true
-  rescue Fiddle::DLError
-    false
+  def dylib_found_in_shared_cache?(dylib)
+    @dyld_shared_cache_contains_path ||= begin
+      libc = Fiddle.dlopen("/usr/lib/libSystem.B.dylib")
+
+      Fiddle::Function.new(
+        libc["_dyld_shared_cache_contains_path"],
+        [Fiddle::TYPE_CONST_STRING],
+        Fiddle::TYPE_BOOL,
+      )
+    end
+
+    @dyld_shared_cache_contains_path.call(dylib)
   end
 
   def check_formula_deps
     filter_out = proc do |dep|
-      next true if dep.build?
+      next true if dep.build? || dep.test?
 
       (dep.optional? || dep.recommended?) && formula.build.without?(dep)
     end

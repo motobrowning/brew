@@ -175,7 +175,7 @@ conflicts_with "blueduck", because: "yellowduck also ships a duck binary"
 
 In Homebrew we sometimes accept formulae updates that don’t include a version bump. These include resource updates, new patches or fixing a security issue with a formula.
 
-Occasionally, these updates require a forced-recompile of the formula itself or its dependents to either ensure formulae continue to function as expected or to close a security issue. This forced-recompile is known as a [`revision`](https://rubydoc.brew.sh/Formula#revision%3D-class_method) and is inserted underneath the [`homepage`](https://rubydoc.brew.sh/Formula#homepage%3D-class_method)/[`url`](https://rubydoc.brew.sh/Formula#url-class_method)/[`sha256`](https://rubydoc.brew.sh/Formula#sha256%3D-class_method) block.
+Occasionally, these updates require a forced-recompile of the formula itself or its dependents to either ensure formulae continue to function as expected or to close a security issue. This forced-recompile is known as a [`revision`](https://rubydoc.brew.sh/Formula#revision%3D-class_method) and is inserted underneath the [`homepage`](https://rubydoc.brew.sh/Formula#homepage%3D-class_method)/[`url`](https://rubydoc.brew.sh/Formula#url-class_method)/[`sha256`](https://rubydoc.brew.sh/Formula#sha256%3D-class_method)/[`license`](https://rubydoc.brew.sh/Formula#license-class_method) block.
 
 When a dependent of a formula fails to build against a new version of that dependency it must receive a [`revision`](https://rubydoc.brew.sh/Formula#revision%3D-class_method). An example of such failure is in [this issue report](https://github.com/Homebrew/legacy-homebrew/issues/31195) and [its fix](https://github.com/Homebrew/legacy-homebrew/pull/31207).
 
@@ -448,13 +448,90 @@ end
 
 ### Standard arguments
 
-For any formula using a well-known build system, there'll be arguments that should be passed during compilation such that its build conforms to Homebrew standards. These have been collected into a set of `std_*_args` methods (like [`std_configure_args`](https://rubydoc.brew.sh/Formula#std_configure_args-instance_method) and [`std_cmake_args`](https://rubydoc.brew.sh/Formula#std_cmake_args-instance_method) as seen in the [output of `brew create`](#grab-the-url)) that set the build type and installation paths, plus any other applicable options.
+For any formula using certain well-known build systems, there will be arguments that should be passed during compilation so that the build conforms to Homebrew standards. These have been collected into a set of `std_*_args` methods.
 
 Most of these methods accept parameters to customize their output. For example, to set the install prefix to [**`libexec`**](#variables-for-directory-locations) for `configure` or `cmake`:
 
 ```ruby
 system "./configure", *std_configure_args(prefix: libexec)
 system "cmake", "-S", ".", "-B", "build", *std_cmake_args(install_prefix: libexec)
+```
+
+The `std_*_args` methods, as well as the arguments they pass, are:
+
+#### `std_cabal_v2_args`
+
+```ruby
+"--jobs=#{ENV.make_jobs}"
+"--max-backjumps=100000"
+"--install-method=copy"
+"--installdir=#{bin}"
+```
+
+#### `std_cargo_args`
+
+```ruby
+"--locked"
+"--root=#{root}"
+"--path=#{path}"
+```
+
+#### `std_cmake_args`
+
+```ruby
+"-DCMAKE_INSTALL_PREFIX=#{install_prefix}"
+"-DCMAKE_INSTALL_LIBDIR=#{install_libdir}"
+"-DCMAKE_BUILD_TYPE=Release"
+"-DCMAKE_FIND_FRAMEWORK=#{find_framework}"
+"-DCMAKE_VERBOSE_MAKEFILE=ON"
+"-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=#{HOMEBREW_LIBRARY_PATH}/cmake/trap_fetchcontent_provider.cmake"
+"-Wno-dev"
+"-DBUILD_TESTING=OFF"
+```
+
+#### `std_configure_args`
+
+```ruby
+"--disable-debug"
+"--disable-dependency-tracking"
+"--prefix=#{prefix}"
+"--libdir=#{libdir}"
+```
+
+#### `std_go_args`
+
+```ruby
+"-trimpath"
+"-o=#{output}"
+```
+
+#### `std_meson_args`
+
+```ruby
+"--prefix=#{prefix}"
+"--libdir=#{lib}"
+"--buildtype=release"
+"--wrap-mode=nofallback"
+```
+
+#### `std_npm_args`
+
+```ruby
+"-ddd"
+"--global"
+"--build-from-source"
+"--cache=$(brew --cache)/npm_cache"
+"--prefix=#{libexec}"
+```
+
+#### `std_pip_args`
+
+```ruby
+"--verbose"
+"--no-deps"
+"--no-binary=:all:"
+"--ignore-installed"
+"--no-compile"
 ```
 
 ### `bin.install "foo"`
@@ -918,7 +995,7 @@ class Foo < Formula
   url "https://example.com/foo-1.0.tar.gz"
 
   def post_install
-    rm_f pkgetc/"cert.pem"
+    rm pkgetc/"cert.pem" if File.exist?(pkgetc/"cert.pem")
     pkgetc.install_symlink Formula["ca-certificates"].pkgetc/"cert.pem"
   end
   # ...

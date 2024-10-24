@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "utils/curl"
@@ -36,6 +36,7 @@ module Repology
     data = JSON.parse(output)
     { name => data }
   rescue => e
+    require "utils/backtrace"
     error_output = [errors, "#{e.class}: #{e}", Utils::Backtrace.clean(e)].compact
     if Homebrew::EnvConfig.developer?
       $stderr.puts(*error_output)

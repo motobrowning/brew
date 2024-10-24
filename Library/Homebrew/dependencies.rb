@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "delegate"
@@ -38,6 +38,11 @@ class Dependencies < SimpleDelegator
   sig { returns(String) }
   def inspect
     "#<#{self.class.name}: #{__getobj__}>"
+  end
+
+  sig { returns(T::Array[Dependency]) }
+  def to_a
+    __getobj__.to_a
   end
 end
 

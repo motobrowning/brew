@@ -89,6 +89,9 @@ module Homebrew::EnvConfig
     def developer?; end
 
     sig { returns(T::Boolean) }
+    def disable_debrew?; end
+
+    sig { returns(T::Boolean) }
     def disable_load_formula?; end
 
     sig { returns(T.nilable(::String)) }
@@ -111,6 +114,9 @@ module Homebrew::EnvConfig
 
     sig { returns(Integer) }
     def fail_log_lines; end
+
+    sig { returns(T::Boolean) }
+    def forbid_packages_from_paths?; end
 
     sig { returns(T.nilable(::String)) }
     def forbidden_casks; end
@@ -183,6 +189,9 @@ module Homebrew::EnvConfig
 
     sig { returns(String) }
     def livecheck_watchlist; end
+
+    sig { returns(T.nilable(::String)) }
+    def lock_context; end
 
     sig { returns(String) }
     def logs; end

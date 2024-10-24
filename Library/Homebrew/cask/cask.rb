@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -117,8 +117,8 @@ module Cask
       @dsl.language_eval
     end
 
-    DSL::DSL_METHODS.each do |method_name|
-      define_method(method_name) { |&block| @dsl.send(method_name, &block) }
+    ::Cask::DSL::DSL_METHODS.each do |method_name|
+      define_method(method_name) { |*args, &block| @dsl.send(method_name, *args, &block) }
     end
 
     sig { params(caskroom_path: Pathname).returns(T::Array[[String, String]]) }
@@ -230,6 +230,8 @@ module Cask
     end
 
     def checksumable?
+      return false if (url = self.url).nil?
+
       DownloadStrategyDetector.detect(url.to_s, url.using) <= AbstractFileDownloadStrategy
     end
 
@@ -323,6 +325,8 @@ module Cask
 
     def tap_git_head
       @tap_git_head ||= tap&.git_head
+    rescue TapUnavailableError
+      nil
     end
 
     def populate_from_api!(json_cask)

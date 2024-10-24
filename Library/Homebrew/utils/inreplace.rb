@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "utils/string_inreplace_extension"
@@ -68,7 +68,7 @@ module Utils
 
           yield s
         else
-          s.gsub!(T.must(before), T.must(after), audit_result)
+          s.gsub!(T.must(before), T.must(after), audit_result:)
         end
 
         errors[path] = s.errors unless s.errors.empty?

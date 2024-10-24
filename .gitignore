@@ -89,6 +89,7 @@
 **/vendor/bundle/ruby/*/gems/json_schemer-*/
 **/vendor/bundle/ruby/*/gems/kramdown-*/
 **/vendor/bundle/ruby/*/gems/language_server-protocol-*/
+**/vendor/bundle/ruby/*/gems/logger-*/
 **/vendor/bundle/ruby/*/gems/method_source-*/
 **/vendor/bundle/ruby/*/gems/mini_portile2-*/
 **/vendor/bundle/ruby/*/gems/minitest-*/
@@ -107,6 +108,7 @@
 **/vendor/bundle/ruby/*/gems/racc-*/
 **/vendor/bundle/ruby/*/gems/rainbow-*/
 **/vendor/bundle/ruby/*/gems/rbi-*/
+**/vendor/bundle/ruby/*/gems/rbs-*/
 **/vendor/bundle/ruby/*/gems/rdoc-*/
 **/vendor/bundle/ruby/*/gems/redcarpet-*/
 **/vendor/bundle/ruby/*/gems/regexp_parser-*/
@@ -120,6 +122,7 @@
 **/vendor/bundle/ruby/*/gems/rspec-support-*/
 **/vendor/bundle/ruby/*/gems/rspec-sorbet-*/
 **/vendor/bundle/ruby/*/gems/rubocop-*/
+**/vendor/bundle/ruby/*/gems/ruby-lsp-*/
 **/vendor/bundle/ruby/*/gems/ruby-prof-*/
 **/vendor/bundle/ruby/*/gems/ruby-progressbar-*/
 **/vendor/bundle/ruby/*/gems/simplecov-*/

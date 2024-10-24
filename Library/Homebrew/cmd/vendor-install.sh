@@ -1,7 +1,4 @@
-#:  @hide_from_man_page
-#:  * `vendor-install` [<target>]
-#:
-#:  Install Homebrew's portable Ruby.
+# Documentation defined in Library/Homebrew/cmd/vendor-install.rb
 
 # HOMEBREW_CURLRC, HOMEBREW_LIBRARY is from the user environment
 # HOMEBREW_CACHE, HOMEBREW_CURL, HOMEBREW_LINUX, HOMEBREW_LINUX_MINIMUM_GLIBC_VERSION, HOMEBREW_MACOS,
@@ -362,14 +359,7 @@ homebrew-vendor-install() {
 
   CACHED_LOCATION="${HOMEBREW_CACHE}/${VENDOR_FILENAME}"
 
-  lock "vendor-install-${VENDOR_NAME}"
+  lock "vendor-install ${VENDOR_NAME}"
   fetch
   install
-
-  # Bootsnap needs cleaned up on a new Ruby version.
-  # It's cleaned up by every `brew cleanup` run anyway so not a big deal to do it here, too.
-  if [[ "${VENDOR_NAME}" == "ruby" ]]
-  then
-    rm -rf "${HOMEBREW_CACHE}/bootsnap"
-  fi
 }

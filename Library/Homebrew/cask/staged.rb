@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "utils/user"
@@ -6,11 +6,11 @@ require "utils/user"
 module Cask
   # Helper functions for staged casks.
   module Staged
-    # FIXME: Enable cop again when https://github.com/sorbet/sorbet/issues/3532 is fixed.
-    # rubocop:disable Style/MutableConstant
-    Paths = T.type_alias { T.any(String, Pathname, T::Array[T.any(String, Pathname)]) }
-    # rubocop:enable Style/MutableConstant
+    extend T::Helpers
 
+    requires_ancestor { Kernel }
+
+    Paths = T.type_alias { T.any(String, Pathname, T::Array[T.any(String, Pathname)]) }
     sig { params(paths: Paths, permissions_str: String).void }
     def set_permissions(paths, permissions_str)
       full_paths = remove_nonexistent(paths)

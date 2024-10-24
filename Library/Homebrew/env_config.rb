@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Homebrew
@@ -8,7 +8,7 @@ module Homebrew
   module EnvConfig
     module_function
 
-    ENVS = {
+    ENVS = T.let({
       HOMEBREW_ALLOWED_TAPS:                     {
         description: "A space-separated list of taps. Homebrew will refuse to install a " \
                      "formula unless it and all of its dependencies are in an official tap " \
@@ -152,6 +152,10 @@ module Homebrew
                      "budding) by e.g. turning warnings into errors.",
         boolean:     true,
       },
+      HOMEBREW_DISABLE_DEBREW:                   {
+        description: "If set, the interactive formula debugger available via `--debug` will be disabled.",
+        boolean:     true,
+      },
       HOMEBREW_DISABLE_LOAD_FORMULA:             {
         description: "If set, refuse to load formulae. This is useful when formulae are not trusted (such " \
                      "as in pull requests).",
@@ -200,7 +204,7 @@ module Homebrew
                      "formula or cask if it or any of its dependencies is on this list.",
       },
       HOMEBREW_FORBIDDEN_LICENSES:               {
-        description: "A space-separated list of licenses. Homebrew will refuse to install a " \
+        description: "A space-separated list of SPDX license identifiers. Homebrew will refuse to install a " \
                      "formula if it or any of its dependencies has a license on this list.",
       },
       HOMEBREW_FORBIDDEN_OWNER:                  {
@@ -213,6 +217,11 @@ module Homebrew
       HOMEBREW_FORBIDDEN_TAPS:                   {
         description: "A space-separated list of taps. Homebrew will refuse to install a " \
                      "formula if it or any of its dependencies is in a tap on this list.",
+      },
+      HOMEBREW_FORBID_PACKAGES_FROM_PATHS:       {
+        description: "If set, Homebrew will refuse to read formulae or casks provided from file paths, " \
+                     "e.g. `brew install ./package.rb`.",
+        boolean:     true,
       },
       HOMEBREW_FORCE_BREWED_CA_CERTIFICATES:     {
         description: "If set, always use a Homebrew-installed `ca-certificates` rather than the system version. " \
@@ -285,6 +294,10 @@ module Homebrew
         default_text: "`$XDG_CONFIG_HOME/homebrew/livecheck_watchlist.txt` if `$XDG_CONFIG_HOME` is set " \
                       "or `$HOME/.homebrew/livecheck_watchlist.txt` otherwise.",
         default:      "#{ENV.fetch("HOMEBREW_USER_CONFIG_HOME")}/livecheck_watchlist.txt",
+      },
+      HOMEBREW_LOCK_CONTEXT:                     {
+        description: "If set, Homebrew will add this output as additional context for locking errors. " \
+                     "This is useful when running `brew` in the background.",
       },
       HOMEBREW_LOGS:                             {
         description:  "Use this directory to store log files.",
@@ -477,7 +490,7 @@ module Homebrew
         description: "A comma-separated list of hostnames and domain names excluded " \
                      "from proxying by `curl`(1), `git`(1) and `svn`(1) when downloading through Homebrew.",
       },
-    }.freeze
+    }.freeze, T::Hash[Symbol, T::Hash[Symbol, T.untyped]])
 
     sig { params(env: Symbol, hash: T::Hash[Symbol, T.untyped]).returns(String) }
     def env_method_name(env, hash)
@@ -488,10 +501,10 @@ module Homebrew
       method_name
     end
 
-    CUSTOM_IMPLEMENTATIONS = Set.new([
+    CUSTOM_IMPLEMENTATIONS = T.let(Set.new([
       :HOMEBREW_MAKE_JOBS,
       :HOMEBREW_CASK_OPTS,
-    ]).freeze
+    ]).freeze, T::Set[Symbol])
 
     ENVS.each do |env, hash|
       # Needs a custom implementation.
@@ -502,7 +515,18 @@ module Homebrew
 
       if hash[:boolean]
         define_method(method_name) do
-          ENV[env].present?
+          env_value = ENV.fetch(env, nil)
+
+          falsy_values = %w[false no off nil 0]
+          if falsy_values.include?(env_value&.downcase)
+            odeprecated "#{env}=#{env_value}", <<~EOS
+              If you wish to enable #{env}, #{env}=1
+              If you wish to disable #{env}, #{env}=
+            EOS
+          end
+
+          # TODO: Uncomment the remaining part of the line below after the deprecation/disable cycle.
+          env_value.present? # && !falsy_values.include(env_value.downcase)
         end
       elsif hash[:default].present?
         define_method(method_name) do

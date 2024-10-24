@@ -21,7 +21,6 @@ module SharedEnvExtension
     # Normalise the system Perl version used, where multiple may be available
     self["VERSIONER_PERL_VERSION"] = MacOS.preferred_perl_version
   end
-  private :setup_build_environment
 
   sig { returns(T::Boolean) }
   def no_weak_imports_support?
@@ -38,6 +37,6 @@ module SharedEnvExtension
     # This is supported starting Xcode 13, which ships ld64-711.
     # https://developer.apple.com/documentation/xcode-release-notes/xcode-13-release-notes
     # https://en.wikipedia.org/wiki/Xcode#Xcode_11.0_-_14.x_(since_SwiftUI_framework)_2
-    DevelopmentTools.ld64_version >= 711
+    OS::Mac::DevelopmentTools.ld64_version >= 711
   end
 end

@@ -3,12 +3,13 @@
 RSpec.describe Tap do
   include FileUtils
 
+  alias_matcher :have_cask_file, :be_cask_file
   alias_matcher :have_formula_file, :be_formula_file
   alias_matcher :have_custom_remote, :be_custom_remote
 
   subject(:homebrew_foo_tap) { described_class.fetch("Homebrew", "foo") }
 
-  let(:path) { Tap::TAP_DIRECTORY/"homebrew/homebrew-foo" }
+  let(:path) { HOMEBREW_TAP_DIRECTORY/"homebrew/homebrew-foo" }
   let(:formula_file) { path/"Formula/foo.rb" }
   let(:alias_file) { path/"Aliases/bar" }
   let(:cmd_file) { path/"cmd/brew-tap-cmd.rb" }
@@ -162,7 +163,7 @@ RSpec.describe Tap do
 
   specify "attributes" do
     expect(homebrew_foo_tap.user).to eq("Homebrew")
-    expect(homebrew_foo_tap.repo).to eq("foo")
+    expect(homebrew_foo_tap.repository).to eq("foo")
     expect(homebrew_foo_tap.name).to eq("homebrew/foo")
     expect(homebrew_foo_tap.path).to eq(path)
     expect(homebrew_foo_tap).to be_installed
@@ -172,7 +173,7 @@ RSpec.describe Tap do
 
   specify "#issues_url" do
     t = described_class.fetch("someone", "foo")
-    path = Tap::TAP_DIRECTORY/"someone/homebrew-foo"
+    path = HOMEBREW_TAP_DIRECTORY/"someone/homebrew-foo"
     path.mkpath
     cd path do
       system "git", "init"
@@ -182,10 +183,10 @@ RSpec.describe Tap do
     expect(t.issues_url).to eq("https://github.com/someone/homebrew-foo/issues")
     expect(homebrew_foo_tap.issues_url).to eq("https://github.com/Homebrew/homebrew-foo/issues")
 
-    (Tap::TAP_DIRECTORY/"someone/homebrew-no-git").mkpath
+    (HOMEBREW_TAP_DIRECTORY/"someone/homebrew-no-git").mkpath
     expect(described_class.fetch("someone", "no-git").issues_url).to be_nil
   ensure
-    path.parent.rmtree
+    FileUtils.rm_rf(path.parent)
   end
 
   specify "files" do
@@ -201,7 +202,6 @@ RSpec.describe Tap do
     expect(homebrew_foo_tap.tap_migrations).to eq("removed-formula" => "homebrew/foo")
     expect(homebrew_foo_tap.command_files).to eq([cmd_file])
     expect(homebrew_foo_tap.to_hash).to be_a(Hash)
-    expect(homebrew_foo_tap).to have_formula_file(formula_file)
     expect(homebrew_foo_tap).to have_formula_file("Formula/foo.rb")
     expect(homebrew_foo_tap).not_to have_formula_file("bar.rb")
     expect(homebrew_foo_tap).not_to have_formula_file("Formula/baz.sh")
@@ -238,7 +238,7 @@ RSpec.describe Tap do
     it "returns the remote https repository" do
       setup_git_repo
 
-      expect(homebrew_foo_tap.remote_repo).to eq("Homebrew/homebrew-foo")
+      expect(homebrew_foo_tap.remote_repository).to eq("Homebrew/homebrew-foo")
 
       services_tap = described_class.fetch("Homebrew", "services")
       services_tap.path.mkpath
@@ -246,13 +246,13 @@ RSpec.describe Tap do
         system "git", "init"
         system "git", "remote", "add", "origin", "https://github.com/Homebrew/homebrew-bar"
       end
-      expect(services_tap.remote_repo).to eq("Homebrew/homebrew-bar")
+      expect(services_tap.remote_repository).to eq("Homebrew/homebrew-bar")
     end
 
     it "returns the remote ssh repository" do
       setup_git_repo
 
-      expect(homebrew_foo_tap.remote_repo).to eq("Homebrew/homebrew-foo")
+      expect(homebrew_foo_tap.remote_repository).to eq("Homebrew/homebrew-foo")
 
       services_tap = described_class.fetch("Homebrew", "services")
       services_tap.path.mkpath
@@ -260,17 +260,17 @@ RSpec.describe Tap do
         system "git", "init"
         system "git", "remote", "add", "origin", "git@github.com:Homebrew/homebrew-bar"
       end
-      expect(services_tap.remote_repo).to eq("Homebrew/homebrew-bar")
+      expect(services_tap.remote_repository).to eq("Homebrew/homebrew-bar")
     end
 
     it "returns nil if the Tap is not a Git repository" do
-      expect(homebrew_foo_tap.remote_repo).to be_nil
+      expect(homebrew_foo_tap.remote_repository).to be_nil
     end
 
     it "returns nil if Git is not available" do
       setup_git_repo
       allow(Utils::Git).to receive(:available?).and_return(false)
-      expect(homebrew_foo_tap.remote_repo).to be_nil
+      expect(homebrew_foo_tap.remote_repository).to be_nil
     end
   end
 
@@ -378,7 +378,7 @@ RSpec.describe Tap do
       end.to raise_error(ErrorDuringExecution)
 
       expect(tap).not_to be_installed
-      expect(Tap::TAP_DIRECTORY/"user").not_to exist
+      expect(HOMEBREW_TAP_DIRECTORY/"user").not_to exist
     end
   end
 
@@ -412,8 +412,8 @@ RSpec.describe Tap do
     expect(HOMEBREW_PREFIX/"share/zsh/site-functions/_brew-tap-cmd").not_to exist
     expect(HOMEBREW_PREFIX/"share/fish/vendor_completions.d/brew-tap-cmd.fish").not_to exist
   ensure
-    (HOMEBREW_PREFIX/"etc").rmtree if (HOMEBREW_PREFIX/"etc").exist?
-    (HOMEBREW_PREFIX/"share").rmtree if (HOMEBREW_PREFIX/"share").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"etc") if (HOMEBREW_PREFIX/"etc").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"share") if (HOMEBREW_PREFIX/"share").exist?
   end
 
   specify "#link_completions_and_manpages when completions are enabled for non-official tap" do
@@ -433,8 +433,8 @@ RSpec.describe Tap do
     expect(HOMEBREW_PREFIX/"share/fish/vendor_completions.d/brew-tap-cmd.fish").to be_a_file
     tap.uninstall
   ensure
-    (HOMEBREW_PREFIX/"etc").rmtree if (HOMEBREW_PREFIX/"etc").exist?
-    (HOMEBREW_PREFIX/"share").rmtree if (HOMEBREW_PREFIX/"share").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"etc") if (HOMEBREW_PREFIX/"etc").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"share") if (HOMEBREW_PREFIX/"share").exist?
   end
 
   specify "#link_completions_and_manpages when completions are disabled for non-official tap" do
@@ -451,8 +451,8 @@ RSpec.describe Tap do
     expect(HOMEBREW_PREFIX/"share/fish/vendor_completions.d/brew-tap-cmd.fish").not_to be_a_file
     tap.uninstall
   ensure
-    (HOMEBREW_PREFIX/"etc").rmtree if (HOMEBREW_PREFIX/"etc").exist?
-    (HOMEBREW_PREFIX/"share").rmtree if (HOMEBREW_PREFIX/"share").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"etc") if (HOMEBREW_PREFIX/"etc").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"share") if (HOMEBREW_PREFIX/"share").exist?
   end
 
   specify "#link_completions_and_manpages when completions are enabled for official tap" do
@@ -472,8 +472,8 @@ RSpec.describe Tap do
     expect(HOMEBREW_PREFIX/"share/fish/vendor_completions.d/brew-tap-cmd.fish").to be_a_file
     tap.uninstall
   ensure
-    (HOMEBREW_PREFIX/"etc").rmtree if (HOMEBREW_PREFIX/"etc").exist?
-    (HOMEBREW_PREFIX/"share").rmtree if (HOMEBREW_PREFIX/"share").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"etc") if (HOMEBREW_PREFIX/"etc").exist?
+    FileUtils.rm_r(HOMEBREW_PREFIX/"share") if (HOMEBREW_PREFIX/"share").exist?
   end
 
   specify "#config" do
@@ -632,6 +632,103 @@ RSpec.describe Tap do
         expect(homebrew_foo_tap.pypi_formula_mappings).to eq expected_result
       end
     end
+
+    describe "#formula_file?" do
+      it "matches files from Formula/" do
+        tap = described_class.fetch("hard/core")
+        FileUtils.mkdir_p(tap.path/"Formula")
+
+        %w[
+          kvazaar.rb
+          Casks/kvazaar.rb
+          Casks/k/kvazaar.rb
+          Formula/kvazaar.sh
+          HomebrewFormula/kvazaar.rb
+          HomebrewFormula/k/kvazaar.rb
+        ].each do |relative_path|
+          expect(tap).not_to have_formula_file(relative_path)
+        end
+
+        %w[
+          Formula/kvazaar.rb
+          Formula/k/kvazaar.rb
+        ].each do |relative_path|
+          expect(tap).to have_formula_file(relative_path)
+        end
+      ensure
+        FileUtils.rm_rf(tap.path.parent) if tap
+      end
+
+      it "matches files from HomebrewFormula/" do
+        tap = described_class.fetch("hard/core")
+        FileUtils.mkdir_p(tap.path/"HomebrewFormula")
+
+        %w[
+          kvazaar.rb
+          Casks/kvazaar.rb
+          Casks/k/kvazaar.rb
+          Formula/kvazaar.rb
+          Formula/k/kvazaar.rb
+          HomebrewFormula/kvazaar.sh
+        ].each do |relative_path|
+          expect(tap).not_to have_formula_file(relative_path)
+        end
+
+        %w[
+          HomebrewFormula/kvazaar.rb
+          HomebrewFormula/k/kvazaar.rb
+        ].each do |relative_path|
+          expect(tap).to have_formula_file(relative_path)
+        end
+      ensure
+        FileUtils.rm_rf(tap.path.parent) if tap
+      end
+
+      it "matches files from the top-level directory" do
+        tap = described_class.fetch("hard/core")
+        FileUtils.mkdir_p(tap.path)
+
+        %w[
+          kvazaar.sh
+          Casks/kvazaar.rb
+          Casks/k/kvazaar.rb
+          Formula/kvazaar.rb
+          Formula/k/kvazaar.rb
+          HomebrewFormula/kvazaar.rb
+          HomebrewFormula/k/kvazaar.rb
+        ].each do |relative_path|
+          expect(tap).not_to have_formula_file(relative_path)
+        end
+
+        expect(tap).to have_formula_file("kvazaar.rb")
+      ensure
+        FileUtils.rm_rf(tap.path.parent) if tap
+      end
+    end
+
+    describe "#cask_file?" do
+      it "matches files from Casks/" do
+        tap = described_class.fetch("hard/core")
+
+        %w[
+          kvazaar.rb
+          Casks/kvazaar.sh
+          Formula/kvazaar.rb
+          Formula/k/kvazaar.rb
+          HomebrewFormula/kvazaar.rb
+          HomebrewFormula/k/kvazaar.rb
+        ].each do |relative_path|
+          expect(tap).not_to have_cask_file(relative_path)
+        end
+
+        %w[
+          Casks/kvazaar.rb
+          Casks/k/kvazaar.rb
+        ].each do |relative_path|
+          expect(tap).to have_cask_file(relative_path)
+        end
+      end
+    end
   end
 
   describe CoreTap do
@@ -639,7 +736,7 @@ RSpec.describe Tap do
 
     specify "attributes" do
       expect(core_tap.user).to eq("Homebrew")
-      expect(core_tap.repo).to eq("core")
+      expect(core_tap.repository).to eq("core")
       expect(core_tap.name).to eq("homebrew/core")
       expect(core_tap.command_files).to eq([])
       expect(core_tap).to be_installed
@@ -652,7 +749,7 @@ RSpec.describe Tap do
     end
 
     specify "files" do
-      path = Tap::TAP_DIRECTORY/"homebrew/homebrew-core"
+      path = HOMEBREW_TAP_DIRECTORY/"homebrew/homebrew-core"
       formula_file = core_tap.formula_dir/"foo.rb"
       core_tap.formula_dir.mkpath
       formula_file.write <<~RUBY
@@ -693,14 +790,16 @@ RSpec.describe Tap do
     end
   end
 
-  describe "#repo_var_suffix" do
+  describe "#repository_var_suffix" do
     it "converts the repo directory to an environment variable suffix" do
-      expect(CoreTap.instance.repo_var_suffix).to eq "_HOMEBREW_HOMEBREW_CORE"
+      expect(CoreTap.instance.repository_var_suffix).to eq "_HOMEBREW_HOMEBREW_CORE"
     end
 
     it "converts non-alphanumeric characters to underscores" do
-      expect(described_class.fetch("my", "tap-with-dashes").repo_var_suffix).to eq "_MY_HOMEBREW_TAP_WITH_DASHES"
-      expect(described_class.fetch("my", "tap-with-@-symbol").repo_var_suffix).to eq "_MY_HOMEBREW_TAP_WITH___SYMBOL"
+      expect(described_class.fetch("my",
+                                   "tap-with-dashes").repository_var_suffix).to eq "_MY_HOMEBREW_TAP_WITH_DASHES"
+      expect(described_class.fetch("my",
+                                   "tap-with-@-symbol").repository_var_suffix).to eq "_MY_HOMEBREW_TAP_WITH___SYMBOL"
     end
   end
 

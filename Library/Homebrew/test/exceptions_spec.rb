@@ -20,9 +20,19 @@ RSpec.describe "Exception" do
   end
 
   describe NoSuchKegError do
-    subject(:error) { described_class.new("foo") }
+    context "without a tap" do
+      subject(:error) { described_class.new("foo") }
 
-    it(:to_s) { expect(error.to_s).to eq("No such keg: #{HOMEBREW_CELLAR}/foo") }
+      it(:to_s) { expect(error.to_s).to eq("No such keg: #{HOMEBREW_CELLAR}/foo") }
+    end
+
+    context "with a tap" do
+      subject(:error) { described_class.new("foo", tap:) }
+
+      let(:tap) { instance_double(Tap, to_s: "u/r") }
+
+      it(:to_s) { expect(error.to_s).to eq("No such keg: #{HOMEBREW_CELLAR}/foo from tap u/r") }
+    end
   end
 
   describe FormulaValidationError do
@@ -36,7 +46,7 @@ RSpec.describe "Exception" do
   describe TapFormulaOrCaskUnavailableError do
     subject(:error) { described_class.new(tap, "foo") }
 
-    let(:tap) { instance_double(Tap, user: "u", repo: "r", to_s: "u/r", installed?: false) }
+    let(:tap) { instance_double(Tap, user: "u", repository: "r", to_s: "u/r", installed?: false) }
 
     it(:to_s) { expect(error.to_s).to match(%r{Please tap it and then try again: brew tap u/r}) }
   end
@@ -78,7 +88,7 @@ RSpec.describe "Exception" do
   describe TapFormulaUnavailableError do
     subject(:error) { described_class.new(tap, "foo") }
 
-    let(:tap) { instance_double(Tap, user: "u", repo: "r", to_s: "u/r", installed?: false) }
+    let(:tap) { instance_double(Tap, user: "u", repository: "r", to_s: "u/r", installed?: false) }
 
     it(:to_s) { expect(error.to_s).to match(%r{Please tap it and then try again: brew tap u/r}) }
   end
@@ -149,9 +159,9 @@ RSpec.describe "Exception" do
   end
 
   describe OperationInProgressError do
-    subject(:error) { described_class.new("foo") }
+    subject(:error) { described_class.new(Pathname("foo")) }
 
-    it(:to_s) { expect(error.to_s).to match(/Operation already in progress for foo/) }
+    it(:to_s) { expect(error.to_s).to match(/has already locked foo/) }
   end
 
   describe FormulaInstallationAlreadyAttemptedError do

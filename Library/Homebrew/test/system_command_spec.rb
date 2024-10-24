@@ -25,10 +25,10 @@ RSpec.describe SystemCommand do
 
       describe "the resulting command line" do
         it "includes the given variables explicitly" do
-          expect(Open3)
-            .to receive(:popen3)
+          expect(command)
+            .to receive(:exec3)
             .with(
-              an_instance_of(Hash), ["/usr/bin/env", "/usr/bin/env"], "A=1", "B=2", "C=3",
+              an_instance_of(Hash), "/usr/bin/env", "A=1", "B=2", "C=3",
               "env", *env_args,
               pgroup: true
             )
@@ -55,14 +55,14 @@ RSpec.describe SystemCommand do
 
       describe "the resulting command line" do
         it "includes the given variables explicitly" do
-          expect(Open3)
-            .to receive(:popen3)
+          expect(command)
+            .to receive(:exec3)
             .with(
-              an_instance_of(Hash), ["/usr/bin/sudo", "/usr/bin/sudo"], "-E",
+              an_instance_of(Hash), "/usr/bin/sudo", "-E",
               "A=1", "B=2", "C=3", "--", "env", *env_args, pgroup: nil
             )
-            .and_wrap_original do |original_popen3, *_, &block|
-              original_popen3.call("true", &block)
+            .and_wrap_original do |original_exec3, *_, &block|
+              original_exec3.call({}, "true", &block)
             end
 
           command.run!
@@ -76,14 +76,14 @@ RSpec.describe SystemCommand do
 
       describe "the resulting command line" do
         it "includes the given variables explicitly" do
-          expect(Open3)
-            .to receive(:popen3)
+          expect(command)
+            .to receive(:exec3)
             .with(
-              an_instance_of(Hash), ["/usr/bin/sudo", "/usr/bin/sudo"], "-u", "root",
+              an_instance_of(Hash), "/usr/bin/sudo", "-u", "root",
               "-E", "A=1", "B=2", "C=3", "--", "env", *env_args, pgroup: nil
             )
-            .and_wrap_original do |original_popen3, *_, &block|
-              original_popen3.call("true", &block)
+            .and_wrap_original do |original_exec3, *_, &block|
+              original_exec3.call({}, "true", &block)
             end
 
           command.run!
@@ -324,7 +324,7 @@ RSpec.describe SystemCommand do
                                args:    %w[--user username:hunter2],
                                verbose: true,
                                secrets: %w[hunter2]
-        end.to raise_error.with_message(redacted_msg).and output(redacted_msg).to_stderr
+        end.to raise_error(ErrorDuringExecution, redacted_msg).and output(redacted_msg).to_stderr
       end
 
       it "does not leak the secrets set by environment" do
@@ -334,7 +334,7 @@ RSpec.describe SystemCommand do
           described_class.run! "curl",
                                args:    %w[--user username:hunter2],
                                verbose: true
-        end.to raise_error.with_message(redacted_msg).and output(redacted_msg).to_stderr
+        end.to raise_error(ErrorDuringExecution, redacted_msg).and output(redacted_msg).to_stderr
       end
     end
 

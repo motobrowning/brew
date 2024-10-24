@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "extend/ENV/shared"
@@ -75,6 +75,7 @@ module Superenv
     self["HOMEBREW_TEMP"] = HOMEBREW_TEMP.to_s
     self["HOMEBREW_OPTFLAGS"] = determine_optflags
     self["HOMEBREW_ARCHFLAGS"] = ""
+    self["HOMEBREW_MAKE_JOBS"] = determine_make_jobs.to_s
     self["CMAKE_PREFIX_PATH"] = determine_cmake_prefix_path
     self["CMAKE_FRAMEWORK_PATH"] = determine_cmake_frameworks_path
     self["CMAKE_INCLUDE_PATH"] = determine_cmake_include_path
@@ -89,6 +90,14 @@ module Superenv
     # Prevent the OpenSSL rust crate from building a vendored OpenSSL.
     # https://github.com/sfackler/rust-openssl/blob/994e5ff8c63557ab2aa85c85cc6956b0b0216ca7/openssl/src/lib.rs#L65
     self["OPENSSL_NO_VENDOR"] = "1"
+    # Prevent Go from automatically downloading a newer toolchain than the one that we have.
+    # https://tip.golang.org/doc/toolchain
+    self["GOTOOLCHAIN"] = "local"
+    # Prevent Python packages from using bundled libraries by default.
+    # Currently for hidapi, pyzmq and pynacl
+    self["HIDAPI_SYSTEM_HIDAPI"] = "1"
+    self["PYZMQ_NO_BUNDLE"] = "1"
+    self["SODIUM_INSTALL"] = "system"
 
     set_debug_symbols if debug_symbols
 
@@ -104,11 +113,13 @@ module Superenv
     # K - Don't strip -arch <arch>, -m32, or -m64
     # d - Don't strip -march=<target>. Use only in formulae that
     #     have runtime detection of CPU features.
-    # w - Pass -no_weak_imports to the linker
     # D - Generate debugging information
+    # w - Pass `-no_weak_imports` to the linker
     # f - Pass `-no_fixup_chains` to `ld` whenever it
     #     is invoked with `-undefined dynamic_lookup`
     # o - Pass `-oso_prefix` to `ld` whenever it is invoked
+    # c - Pass `-ld_classic` to `ld` whenever it is invoked
+    #     with `-dead_strip_dylibs`
     #
     # These flags will also be present:
     # a - apply fix for apr-1-config path
@@ -308,16 +319,19 @@ module Superenv
   # When passed a block, MAKEFLAGS is removed only for the duration of the block and is restored after its completion.
   sig { params(block: T.nilable(T.proc.returns(T.untyped))).returns(T.untyped) }
   def deparallelize(&block)
-    old = delete("MAKEFLAGS")
+    old_makeflags = delete("MAKEFLAGS")
+    old_make_jobs = delete("HOMEBREW_MAKE_JOBS")
+    self["HOMEBREW_MAKE_JOBS"] = "1"
     if block
       begin
         yield
       ensure
-        self["MAKEFLAGS"] = old
+        self["MAKEFLAGS"] = old_makeflags
+        self["HOMEBREW_MAKE_JOBS"] = old_make_jobs
       end
     end
 
-    old
+    old_makeflags
   end
 
   sig { returns(Integer) }

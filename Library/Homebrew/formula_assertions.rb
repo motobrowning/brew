@@ -5,6 +5,9 @@ module Homebrew
   # Helper functions available in formula `test` blocks.
   module Assertions
     include Context
+    extend T::Helpers
+
+    requires_ancestor { Kernel }
 
     require "minitest"
     require "minitest/assertions"
@@ -36,7 +39,7 @@ module Homebrew
     # optionally asserts the exit status.
     #
     # @api public
-    sig { params(cmd: String, input: T.nilable(String), result: T.nilable(Integer)).returns(String) }
+    sig { params(cmd: T.any(String, Pathname), input: T.nilable(String), result: T.nilable(Integer)).returns(String) }
     def pipe_output(cmd, input = nil, result = nil)
       ohai cmd
       output = IO.popen(cmd, "w+") do |pipe|

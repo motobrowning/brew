@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "abstract_command"
@@ -174,7 +174,10 @@ module Homebrew
           begin
             reporter = Reporter.new(tap)
           rescue Reporter::ReporterRevisionUnsetError => e
-            onoe "#{e.message}\n#{Utils::Backtrace.clean(e)&.join("\n")}" if Homebrew::EnvConfig.developer?
+            if Homebrew::EnvConfig.developer?
+              require "utils/backtrace"
+              onoe "#{e.message}\n#{Utils::Backtrace.clean(e)&.join("\n")}"
+            end
             next
           end
           if reporter.updated?
@@ -429,11 +432,11 @@ class Reporter
       @api_names_before_txt = api_names_before_txt
       @api_dir_prefix = api_dir_prefix
     else
-      initial_revision_var = "HOMEBREW_UPDATE_BEFORE#{tap.repo_var_suffix}"
+      initial_revision_var = "HOMEBREW_UPDATE_BEFORE#{tap.repository_var_suffix}"
       @initial_revision = ENV[initial_revision_var].to_s
       raise ReporterRevisionUnsetError, initial_revision_var if @initial_revision.empty?
 
-      current_revision_var = "HOMEBREW_UPDATE_AFTER#{tap.repo_var_suffix}"
+      current_revision_var = "HOMEBREW_UPDATE_AFTER#{tap.repository_var_suffix}"
       @current_revision = ENV[current_revision_var].to_s
       raise ReporterRevisionUnsetError, current_revision_var if @current_revision.empty?
     end
@@ -624,7 +627,10 @@ class Reporter
             system HOMEBREW_BREW_FILE, "link", new_full_name, "--overwrite"
           end
         rescue Exception => e # rubocop:disable Lint/RescueException
-          onoe "#{e.message}\n#{Utils::Backtrace.clean(e)&.join("\n")}" if Homebrew::EnvConfig.developer?
+          if Homebrew::EnvConfig.developer?
+            require "utils/backtrace"
+            onoe "#{e.message}\n#{Utils::Backtrace.clean(e)&.join("\n")}"
+          end
         end
         next
       end
@@ -814,6 +820,8 @@ class ReporterHub
   end
 
   def dump_new_cask_report
+    return if Homebrew::SimulateSystem.simulating_or_running_on_linux?
+
     casks = select_formula_or_cask(:AC).sort.filter_map do |name|
       name.split("/").last unless cask_installed?(name)
     end
@@ -830,6 +838,8 @@ class ReporterHub
   end
 
   def dump_deleted_cask_report
+    return if Homebrew::SimulateSystem.simulating_or_running_on_linux?
+
     casks = select_formula_or_cask(:DC).sort.filter_map do |name|
       name = name.split("/").last
       pretty_uninstalled(name) if cask_installed?(name)

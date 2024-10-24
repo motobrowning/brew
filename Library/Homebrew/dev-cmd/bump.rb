@@ -16,20 +16,23 @@ module Homebrew
         const :current_version, BumpVersionParser
         const :repology_latest, T.any(String, Version)
         const :new_version, BumpVersionParser
-        const :open_pull_requests, T.nilable(T.any(T::Array[String], String))
-        const :closed_pull_requests, T.nilable(T.any(T::Array[String], String))
+        const :duplicate_pull_requests, T.nilable(T.any(T::Array[String], String))
+        const :maybe_duplicate_pull_requests, T.nilable(T.any(T::Array[String], String))
       end
 
       cmd_args do
         description <<~EOS
-          Display out-of-date brew formulae and the latest version available. If the
+          Displays out-of-date packages and the latest version available. If the
           returned current and livecheck versions differ or when querying specific
-          formulae, also displays whether a pull request has been opened with the URL.
+          packages, also displays whether a pull request has been opened with the URL.
         EOS
         switch "--full-name",
                description: "Print formulae/casks with fully-qualified names."
         switch "--no-pull-requests",
                description: "Do not retrieve pull requests from GitHub."
+        switch "--auto",
+               description: "Read the list of formulae/casks from the tap autobump list.",
+               hidden:      true
         switch "--formula", "--formulae",
                description: "Check only formulae."
         switch "--cask", "--casks",
@@ -46,13 +49,13 @@ module Homebrew
                description: "Don't try to fork the repository."
         switch "--open-pr",
                description: "Open a pull request for the new version if none have been opened yet."
-        flag   "--limit=",
-               description: "Limit number of package results returned."
         flag   "--start-with=",
                description: "Letter or word that the list of package results should alphabetically follow."
 
         conflicts "--cask", "--formula"
         conflicts "--tap=", "--installed"
+        conflicts "--eval-all", "--installed"
+        conflicts "--installed", "--auto"
         conflicts "--no-pull-requests", "--open-pr"
 
         named_args [:formula, :cask], without_api: true
@@ -62,14 +65,29 @@ module Homebrew
       def run
         Homebrew.install_bundler_gems!(groups: ["livecheck"])
 
-        if args.limit.present? && !args.formula? && !args.cask?
-          raise UsageError, "`--limit` must be used with either `--formula` or `--cask`."
-        end
-
         Homebrew.with_no_api_env do
-          formulae_and_casks = if args.tap
+          eval_all = args.eval_all? || Homebrew::EnvConfig.eval_all?
+
+          formulae_and_casks = if args.auto?
+            raise UsageError, "`--formula` or `--cask` must be passed with `--auto`." if !args.formula? && !args.cask?
+
+            tap_arg = args.tap
+            raise UsageError, "`--tap=` must be passed with `--auto`." if tap_arg.blank?
+
+            tap = Tap.fetch(tap_arg)
+            autobump_list = tap.autobump
+            what = args.cask? ? "casks" : "formulae"
+            raise UsageError, "No autobumped #{what} found." if autobump_list.blank?
+
+            autobump_list.map do |name|
+              qualified_name = "#{tap.name}/#{name}"
+              next Cask::CaskLoader.load(qualified_name) if args.cask?
+
+              Formulary.factory(qualified_name)
+            end
+          elsif args.tap
             tap = Tap.fetch(T.must(args.tap))
-            raise UsageError, "`--tap` cannot be used with official taps." if tap.official?
+            raise UsageError, "`--tap` requires `--auto` for official taps." if tap.official?
 
             formulae = args.cask? ? [] : tap.formula_files.map { |path| Formulary.factory(path) }
             casks = args.formula? ? [] : tap.cask_files.map { |path| Cask::CaskLoader.load(path) }
@@ -80,17 +98,28 @@ module Homebrew
             formulae + casks
           elsif args.named.present?
             args.named.to_formulae_and_casks_with_taps
-          else
-            formulae = args.cask? ? [] : Formula.all(eval_all: args.eval_all?)
-            casks = args.formula? ? [] : Cask::Cask.all(eval_all: args.eval_all?)
+          elsif eval_all
+            formulae = args.cask? ? [] : Formula.all(eval_all:)
+            casks = args.formula? ? [] : Cask::Cask.all(eval_all:)
             formulae + casks
+          else
+            raise UsageError,
+                  "`brew bump` without named arguments needs `--installed` or `--eval-all` passed or " \
+                  "`HOMEBREW_EVAL_ALL` set!"
+          end
+
+          if args.start_with
+            formulae_and_casks.select! do |formula_or_cask|
+              name = formula_or_cask.respond_to?(:token) ? formula_or_cask.token : formula_or_cask.name
+              name.start_with?(args.start_with)
+            end
           end
 
           formulae_and_casks = formulae_and_casks&.sort_by do |formula_or_cask|
             formula_or_cask.respond_to?(:token) ? formula_or_cask.token : formula_or_cask.name
           end
 
-          unless Utils::Curl.curl_supports_tls13?
+          if args.repology? && !Utils::Curl.curl_supports_tls13?
             begin
               ensure_formula_installed!("curl", reason: "Repology queries") unless HOMEBREW_BREWED_CURL_PATH.exist?
             rescue FormulaUnavailableError
@@ -98,7 +127,7 @@ module Homebrew
             end
           end
 
-          handle_formula_and_casks(formulae_and_casks)
+          handle_formulae_and_casks(formulae_and_casks)
         end
       end
 
@@ -113,7 +142,7 @@ module Homebrew
       end
 
       sig { params(formulae_and_casks: T::Array[T.any(Formula, Cask::Cask)]).void }
-      def handle_formula_and_casks(formulae_and_casks)
+      def handle_formulae_and_casks(formulae_and_casks)
         Livecheck.load_other_tap_strategies(formulae_and_casks)
 
         ambiguous_casks = []
@@ -237,14 +266,13 @@ module Homebrew
         params(
           formula_or_cask: T.any(Formula, Cask::Cask),
           name:            String,
-          state:           String,
           version:         T.nilable(String),
         ).returns T.nilable(T.any(T::Array[String], String))
       }
-      def retrieve_pull_requests(formula_or_cask, name, state:, version: nil)
-        tap_remote_repo = formula_or_cask.tap&.remote_repo || formula_or_cask.tap&.full_name
+      def retrieve_pull_requests(formula_or_cask, name, version: nil)
+        tap_remote_repo = formula_or_cask.tap&.remote_repository || formula_or_cask.tap&.full_name
         pull_requests = begin
-          GitHub.fetch_pull_requests(name, tap_remote_repo, state:, version:)
+          GitHub.fetch_pull_requests(name, tap_remote_repo, version:)
         rescue GitHub::API::ValidationFailedError => e
           odebug "Error fetching pull requests for #{formula_or_cask} #{name}: #{e}"
           nil
@@ -291,7 +319,9 @@ module Homebrew
 
             livecheck_latest = livecheck_result(loaded_formula_or_cask)
 
-            new_version_value = if (livecheck_latest.is_a?(Version) && livecheck_latest >= current_version_value) ||
+            new_version_value = if (livecheck_latest.is_a?(Version) &&
+                                    Livecheck::LivecheckVersion.create(formula_or_cask, livecheck_latest) >=
+                                    Livecheck::LivecheckVersion.create(formula_or_cask, current_version_value)) ||
                                    current_version_value == "latest"
               livecheck_latest
             elsif livecheck_latest.is_a?(String) && livecheck_latest.start_with?("skipped")
@@ -343,12 +373,12 @@ module Homebrew
           new_version.general.to_s
         end
 
-        open_pull_requests = if !args.no_pull_requests? && (args.named.present? || new_version.present?)
-          retrieve_pull_requests(formula_or_cask, name, state: "open")
+        duplicate_pull_requests = unless args.no_pull_requests?
+          retrieve_pull_requests(formula_or_cask, name, version: pull_request_version)
         end.presence
 
-        closed_pull_requests = if !args.no_pull_requests? && open_pull_requests.blank? && new_version.present?
-          retrieve_pull_requests(formula_or_cask, name, state: "closed", version: pull_request_version)
+        maybe_duplicate_pull_requests = if !args.no_pull_requests? && duplicate_pull_requests.blank?
+          retrieve_pull_requests(formula_or_cask, name)
         end.presence
 
         VersionBumpInfo.new(
@@ -358,8 +388,8 @@ module Homebrew
           current_version:,
           repology_latest:,
           new_version:,
-          open_pull_requests:,
-          closed_pull_requests:,
+          duplicate_pull_requests:,
+          maybe_duplicate_pull_requests:,
         )
       end
 
@@ -409,8 +439,8 @@ module Homebrew
         end
 
         version_label = version_info.version_name
-        open_pull_requests = version_info.open_pull_requests.presence
-        closed_pull_requests = version_info.closed_pull_requests.presence
+        duplicate_pull_requests = version_info.duplicate_pull_requests.presence
+        maybe_duplicate_pull_requests = version_info.maybe_duplicate_pull_requests.presence
 
         ohai title
         puts <<~EOS
@@ -428,8 +458,8 @@ module Homebrew
           EOS
         end
         puts <<~EOS unless args.no_pull_requests?
-          Open pull requests:       #{open_pull_requests || "none"}
-          Closed pull requests:     #{closed_pull_requests || "none"}
+          Duplicate pull requests:       #{duplicate_pull_requests       || "none"}
+          Maybe duplicate pull requests: #{maybe_duplicate_pull_requests || "none"}
         EOS
 
         return unless args.open_pr?
@@ -449,7 +479,7 @@ module Homebrew
           return
         end
 
-        return if open_pull_requests.present? || closed_pull_requests.present?
+        return if duplicate_pull_requests.present?
 
         version_args = if version_info.multiple_versions
           %W[--version-arm=#{new_version.arm} --version-intel=#{new_version.intel}]

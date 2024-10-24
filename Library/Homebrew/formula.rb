@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -10,8 +10,11 @@ require "formula_pin"
 require "hardware"
 require "utils"
 require "utils/bottles"
+require "utils/gzip"
+require "utils/inreplace"
 require "utils/shebang"
 require "utils/shell"
+require "utils/git_repository"
 require "build_environment"
 require "build_options"
 require "formulary"
@@ -313,7 +316,7 @@ class Formula
 
   def determine_active_spec(requested)
     spec = send(requested) || stable || head
-    spec || raise(FormulaSpecificationError, "formulae require at least a URL")
+    spec || raise(FormulaSpecificationError, "#{full_name}: formula requires at least a URL")
   end
 
   def validate_attributes!
@@ -564,7 +567,13 @@ class Formula
     params(name: String, klass: T.class_of(Resource), block: T.nilable(T.proc.bind(Resource).void))
       .returns(T.nilable(Resource))
   }
-  def resource(name, klass = Resource, &block) = active_spec.resource(name, klass, &block)
+  def resource(name = T.unsafe(nil), klass = T.unsafe(nil), &block)
+    if klass.nil?
+      active_spec.resource(*name, &block)
+    else
+      active_spec.resource(name, klass, &block)
+    end
+  end
 
   # Old names for the formula.
   #
@@ -1225,7 +1234,7 @@ class Formula
   #
   # @see https://www.unix.com/man-page/all/5/plist/ <code>plist(5)</code> man page
   def plist
-    odeprecated "`Formula#plist`", "`Homebrew::Service`"
+    odisabled "`Formula#plist`", "`Homebrew::Service`"
     nil
   end
 
@@ -1585,8 +1594,7 @@ class Formula
         %w[
           config.log
           CMakeCache.txt
-          CMakeOutput.log
-          CMakeError.log
+          CMakeConfigureLog.yaml
           meson-log.txt
         ].each do |logfile|
           Dir["**/#{logfile}"].each do |logpath|
@@ -1770,16 +1778,16 @@ class Formula
     "#<Formula #{name} (#{active_spec_sym}) #{path}>"
   end
 
-  # Standard parameters for configure builds.
-  sig {
-    params(
-      prefix: T.any(String, Pathname),
-      libdir: T.any(String, Pathname),
-    ).returns(T::Array[String])
-  }
-  def std_configure_args(prefix: self.prefix, libdir: "lib")
-    libdir = Pathname(libdir).expand_path(prefix)
-    ["--disable-debug", "--disable-dependency-tracking", "--prefix=#{prefix}", "--libdir=#{libdir}"]
+  # Standard parameters for cabal-v2 builds.
+  sig { returns(T::Array[String]) }
+  def std_cabal_v2_args
+    # cabal-install's dependency-resolution backtracking strategy can
+    # easily need more than the default 2,000 maximum number of
+    # "backjumps," since Hackage is a fast-moving, rolling-release
+    # target. The highest known needed value by a formula was 43,478
+    # for git-annex, so 100,000 should be enough to avoid most
+    # gratuitous backjumps build failures.
+    ["--jobs=#{ENV.make_jobs}", "--max-backjumps=100000", "--install-method=copy", "--installdir=#{bin}"]
   end
 
   # Standard parameters for cargo builds.
@@ -1787,7 +1795,7 @@ class Formula
     params(root: T.any(String, Pathname), path: T.any(String, Pathname)).returns(T::Array[String])
   }
   def std_cargo_args(root: prefix, path: ".")
-    ["--locked", "--root=#{root}", "--path=#{path}"]
+    ["--jobs", ENV.make_jobs.to_s, "--locked", "--root=#{root}", "--path=#{path}"]
   end
 
   # Standard parameters for CMake builds.
@@ -1814,7 +1822,18 @@ class Formula
       -DBUILD_TESTING=OFF
     ]
   end
-  alias generic_std_cmake_args std_cmake_args
+
+  # Standard parameters for configure builds.
+  sig {
+    params(
+      prefix: T.any(String, Pathname),
+      libdir: T.any(String, Pathname),
+    ).returns(T::Array[String])
+  }
+  def std_configure_args(prefix: self.prefix, libdir: "lib")
+    libdir = Pathname(libdir).expand_path(prefix)
+    ["--disable-debug", "--disable-dependency-tracking", "--prefix=#{prefix}", "--libdir=#{libdir}"]
+  end
 
   # Standard parameters for Go builds.
   sig {
@@ -1827,22 +1846,20 @@ class Formula
     args
   end
 
-  # Standard parameters for cabal-v2 builds.
-  sig { returns(T::Array[String]) }
-  def std_cabal_v2_args
-    # cabal-install's dependency-resolution backtracking strategy can
-    # easily need more than the default 2,000 maximum number of
-    # "backjumps," since Hackage is a fast-moving, rolling-release
-    # target. The highest known needed value by a formula was 43,478
-    # for git-annex, so 100,000 should be enough to avoid most
-    # gratuitous backjumps build failures.
-    ["--jobs=#{ENV.make_jobs}", "--max-backjumps=100000", "--install-method=copy", "--installdir=#{bin}"]
-  end
-
   # Standard parameters for meson builds.
   sig { returns(T::Array[String]) }
   def std_meson_args
     ["--prefix=#{prefix}", "--libdir=#{lib}", "--buildtype=release", "--wrap-mode=nofallback"]
+  end
+
+  # Standard parameters for npm builds.
+  sig { params(prefix: T.any(String, Pathname, FalseClass)).returns(T::Array[String]) }
+  def std_npm_args(prefix: libexec)
+    require "language/node"
+
+    return Language::Node.std_npm_install_args(Pathname(prefix)) if prefix
+
+    Language::Node.local_npm_install_args
   end
 
   # Standard parameters for pip builds.
@@ -2230,6 +2247,8 @@ class Formula
 
   def tap_git_head
     tap&.git_head
+  rescue TapUnavailableError
+    nil
   end
 
   delegate env: :"self.class"
@@ -2750,11 +2769,20 @@ class Formula
     self.class.on_system_blocks_exist? || @on_system_blocks_exist
   end
 
-  def fetch(verify_download_integrity: true)
-    active_spec.fetch(verify_download_integrity:)
+  sig {
+    params(
+      verify_download_integrity: T::Boolean,
+      timeout:                   T.nilable(T.any(Integer, Float)),
+      quiet:                     T::Boolean,
+    ).returns(Pathname)
+  }
+  def fetch(verify_download_integrity: true, timeout: nil, quiet: false)
+    odeprecated "Formula#fetch", "Resource#fetch on Formula#resource"
+    active_spec.fetch(verify_download_integrity:, timeout:, quiet:)
   end
 
   def verify_download_integrity(filename)
+    odeprecated "Formula#verify_download_integrity", "Resource#verify_download_integrity on Formula#resource"
     active_spec.verify_download_integrity(filename)
   end
 
@@ -2776,7 +2804,7 @@ class Formula
 
     mktemp("#{name}-test") do |staging|
       staging.retain! if keep_tmp
-      @testpath = staging.tmpdir
+      @testpath = T.must(staging.tmpdir)
       test_env[:HOME] = @testpath
       setup_home @testpath
       begin
@@ -2848,14 +2876,21 @@ class Formula
   # @api public
   sig {
     params(
-      paths:        T.any(T::Enumerable[T.any(String, Pathname)], String, Pathname),
-      before:       T.nilable(T.any(Pathname, Regexp, String)),
-      after:        T.nilable(T.any(Pathname, String, Symbol)),
-      audit_result: T::Boolean,
-      block:        T.nilable(T.proc.params(s: StringInreplaceExtension).void),
+      paths:            T.any(T::Enumerable[T.any(String, Pathname)], String, Pathname),
+      before:           T.nilable(T.any(Pathname, Regexp, String)),
+      after:            T.nilable(T.any(Pathname, String, Symbol)),
+      old_audit_result: T.nilable(T::Boolean),
+      audit_result:     T::Boolean,
+      block:            T.nilable(T.proc.params(s: StringInreplaceExtension).void),
     ).void
   }
-  def inreplace(paths, before = nil, after = nil, audit_result = true, &block) # rubocop:disable Style/OptionalBooleanParameter
+  def inreplace(paths, before = nil, after = nil, old_audit_result = nil, audit_result: true, &block)
+    # NOTE: must check for `#nil?` and not `#blank?`, or else `old_audit_result = false` will not call `odeprecated`.
+    unless old_audit_result.nil?
+      odeprecated "inreplace(paths, before, after, #{old_audit_result})",
+                  "inreplace(paths, before, after, audit_result: #{old_audit_result})"
+      audit_result = old_audit_result
+    end
     Utils::Inreplace.inreplace(paths, before, after, audit_result:, &block)
   rescue Utils::Inreplace::Error => e
     onoe e.to_s
@@ -3090,8 +3125,16 @@ class Formula
   # recursively delete the temporary directory. Passing `opts[:retain]`
   # or calling `do |staging| ... staging.retain!` in the block will skip
   # the deletion and retain the temporary directory's contents.
-  def mktemp(prefix = name, opts = {}, &block)
-    Mktemp.new(prefix, opts).run(&block)
+  sig {
+    params(
+      prefix:          String,
+      retain:          T::Boolean,
+      retain_in_cache: T::Boolean,
+      block:           T.proc.params(arg0: Mktemp).void,
+    ).void
+  }
+  def mktemp(prefix = name, retain: false, retain_in_cache: false, &block)
+    Mktemp.new(prefix, retain:, retain_in_cache:).run(&block)
   end
 
   # A version of `FileUtils.mkdir` that also changes to that folder in
@@ -3109,7 +3152,7 @@ class Formula
     removed = ENV.remove_cc_etc
 
     begin
-      T.unsafe(self).system("xcodebuild", *args)
+      self.system("xcodebuild", *args)
     ensure
       ENV.update(removed)
     end
@@ -3334,7 +3377,7 @@ class Formula
     #
     # @!attribute [w] license
     # @see https://docs.brew.sh/License-Guidelines Homebrew License Guidelines
-    # @see https://spdx.github.io/spdx-spec/appendix-IV-SPDX-license-expressions/ SPDX license expression guide
+    # @see https://spdx.github.io/spdx-spec/latest/annexes/spdx-license-expressions/ SPDX license expression guide
     # @api public
     def license(args = nil)
       if args.nil?
@@ -3714,7 +3757,7 @@ class Formula
     #
     # @api public
     def go_resource(name, &block)
-      odeprecated "`Formula.go_resource`", "Go modules"
+      odisabled "`Formula.go_resource`", "Go modules"
       specs.each { |spec| spec.go_resource(name, &block) }
     end
 
@@ -4161,7 +4204,7 @@ class Formula
       when :default_prefix
         lambda do |_|
           T.bind(self, PourBottleCheck)
-          reason(+<<~EOS)
+          reason(<<~EOS)
             The bottle (and many others) needs to be installed into #{Homebrew::DEFAULT_PREFIX}.
           EOS
           satisfy { HOMEBREW_PREFIX.to_s == Homebrew::DEFAULT_PREFIX }

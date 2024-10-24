@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 module OS
@@ -126,7 +126,6 @@ module OS
 
       sig { returns(T::Boolean) }
       def self.installed?
-        odisabled "`MacOS::Xcode.installed?` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         !prefix.nil?
       end
 
@@ -178,7 +177,6 @@ module OS
       # @api internal
       sig { returns(::Version) }
       def self.version
-        odisabled "`MacOS::Xcode.version` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         # may return a version string
         # that is guessed based on the compiler, so do not
         # use it in order to check if Xcode is installed.
@@ -229,7 +227,7 @@ module OS
 
       sig { returns(String) }
       def self.detect_version_from_clang_version
-        version = DevelopmentTools.clang_version
+        version = ::DevelopmentTools.clang_version
 
         return "dunno" if version.null?
 
@@ -278,7 +276,6 @@ module OS
       # Returns true even if outdated tools are installed.
       sig { returns(T::Boolean) }
       def self.installed?
-        odisabled "`MacOS::CLT.installed?` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         !version.null?
       end
 
@@ -315,6 +312,11 @@ module OS
             Install the Command Line Tools for Xcode 11.3.1 from:
               #{Formatter.url(MacOS::Xcode::APPLE_DEVELOPER_DOWNLOAD_URL)}
           EOS
+        elsif OS::Mac.version.prerelease?
+          <<~EOS
+            Install the Command Line Tools for Xcode #{minimum_version.split(".").first} from:
+              #{Formatter.url(MacOS::Xcode::APPLE_DEVELOPER_DOWNLOAD_URL)}
+          EOS
         else
           <<~EOS
             Install the Command Line Tools:
@@ -325,6 +327,8 @@ module OS
 
       sig { returns(String) }
       def self.update_instructions
+        return installation_instructions if OS::Mac.version.prerelease?
+
         software_update_location = if MacOS.version >= "13"
           "System Settings"
         elsif MacOS.version >= "10.14"
@@ -416,7 +420,6 @@ module OS
       # @api internal
       sig { returns(::Version) }
       def self.version
-        odisabled "`MacOS::CLT.version` on Linux" if Homebrew::SimulateSystem.simulating_or_running_on_linux?
         if @version ||= detect_version
           ::Version.new @version
         else

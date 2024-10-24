@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "context"
@@ -54,13 +54,12 @@ module Utils
         require "utils/curl"
 
         curl = Utils::Curl.curl_executable
+        args = Utils::Curl.curl_args(*args, "--silent", "--output", "/dev/null", show_error: false)
         if ENV["HOMEBREW_ANALYTICS_DEBUG"]
           puts "#{curl} #{args.join(" ")} \"#{url}\""
           puts Utils.popen_read(curl, *args, url)
         else
-          pid = fork do
-            exec curl, *args, "--silent", "--output", "/dev/null", url
-          end
+          pid = spawn curl, *args, url
           Process.detach T.must(pid)
         end
       end
@@ -112,7 +111,7 @@ module Utils
         options_array = command_instance.args.options_only.to_a.compact
 
         # Strip out any flag values to reduce cardinality and preserve privacy.
-        options_array.map! { |option| option.sub(/=.*/, "=") }
+        options_array.map! { |option| option.sub(/=.*/m, "=") }
 
         # Strip out --with-* and --without-* options
         options_array.reject! { |option| option.match(/^--with(out)?-/) }
@@ -307,7 +306,7 @@ module Utils
 
           last_thirty_days_downloads = last_thirty_days_match.captures.first.tr(",", "")
           thirty_day_download_count += if (millions_match = last_thirty_days_downloads.match(/(\d+\.\d+)M/).presence)
-            millions_match.captures.first.to_i * 1_000_000
+            millions_match.captures.first.to_f * 1_000_000
           else
             last_thirty_days_downloads.to_i
           end

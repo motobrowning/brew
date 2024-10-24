@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "rubocops/extend/formula_cop"
@@ -11,6 +11,7 @@ module RuboCop
         PROVIDED_BY_MACOS_FORMULAE = %w[
           apr
           bc
+          bc-gh
           berkeley-db
           bison
           bzip2
@@ -22,7 +23,6 @@ module RuboCop
           expat
           file-formula
           flex
-          gnu-getopt
           gperf
           icu4c
           krb5
@@ -46,7 +46,6 @@ module RuboCop
           pax
           pcsc-lite
           pod2man
-          rpcgen
           ruby
           sqlite
           ssh-copy-id

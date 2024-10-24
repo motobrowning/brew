@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "extend/cachable"
@@ -32,10 +32,13 @@ module Homebrew
           cache: HOMEBREW_CACHE_API_SOURCE/"#{tap}/#{git_head}/Formula",
         )
         download.fetch
-        Formulary.factory(download.symlink_location,
-                          formula.active_spec_sym,
-                          alias_path: formula.alias_path,
-                          flags:      formula.class.build_flags)
+
+        with_env(HOMEBREW_FORBID_PACKAGES_FROM_PATHS: nil) do
+          Formulary.factory(download.symlink_location,
+                            formula.active_spec_sym,
+                            alias_path: formula.alias_path,
+                            flags:      formula.class.build_flags)
+        end
       end
 
       def self.cached_json_file_path

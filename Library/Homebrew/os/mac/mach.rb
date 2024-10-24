@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "macho"
@@ -6,6 +6,9 @@ require "macho"
 # {Pathname} extension for dealing with Mach-O files.
 module MachOShim
   extend Forwardable
+  extend T::Helpers
+
+  requires_ancestor { Pathname }
 
   delegate [:dylib_id] => :macho
 

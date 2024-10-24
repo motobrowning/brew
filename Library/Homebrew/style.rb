@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "shellwords"
@@ -91,7 +91,11 @@ module Homebrew
         run_shfmt(shell_files, fix:)
       end
 
-      actionlint_result = if files.present? && actionlint_files.empty?
+      has_actionlint_workflow = actionlint_files.any? do |path|
+        path.to_s.end_with?("/.github/workflows/actionlint.yml")
+      end
+      odebug "actionlint workflow detected. Skipping actionlint checks." if has_actionlint_workflow
+      actionlint_result = if files.present? && (has_actionlint_workflow || actionlint_files.empty?)
         true
       else
         run_actionlint(actionlint_files)
@@ -164,7 +168,9 @@ module Homebrew
 
       args += files
 
-      cache_env = { "XDG_CACHE_HOME" => "#{HOMEBREW_CACHE}/style" }
+      HOMEBREW_CACHE.mkpath
+      cache_dir = HOMEBREW_CACHE.realpath
+      cache_env = { "XDG_CACHE_HOME" => "#{cache_dir}/style" }
 
       FileUtils.rm_rf cache_env["XDG_CACHE_HOME"] if reset_cache
 

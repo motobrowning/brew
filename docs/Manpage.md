@@ -499,6 +499,11 @@ Display brief statistics for your Homebrew installation. If a *`formula`* or
 : Open the GitHub source page for *`formula`* and *`cask`* in a browser. To view
   the history locally: `brew log -p` *`formula`* or *`cask`*
 
+`--fetch-manifest`
+
+: Fetch GitHub Packages manifest for extra information when *`formula`* is not
+  installed.
+
 `--json`
 
 : Print a JSON representation. Currently the default value for *`version`* is
@@ -587,7 +592,7 @@ upgrade *`formula`* if it is already installed but outdated.
 `--cc`
 
 : Attempt to compile using the specified *`compiler`*, which should be the name
-  of the compiler's executable, e.g. `gcc-7` for GCC 7. In order to use LLVM's
+  of the compiler's executable, e.g. `gcc-9` for GCC 9. In order to use LLVM's
   clang, specify `llvm_clang`. To use the Apple-provided clang, specify `clang`.
   This option will only accept compilers that are provided by Homebrew or
   bundled with macOS. Please do not file issues if you encounter errors while
@@ -760,6 +765,14 @@ paths within its current keg. If *`cask`* is provided, list its artifacts.
 `--installed-as-dependency`
 
 : List the formulae installed as dependencies.
+
+`--poured-from-bottle`
+
+: List the formulae installed from a bottle.
+
+`--built-from-source`
+
+: List the formulae compiled from source.
 
 `-1`
 
@@ -1141,12 +1154,14 @@ Perform a substring search of cask tokens and formula names for *`text`*. If
 
 : Search for *`text`* in the given database.
 
-### `setup-ruby [command]`
+### `setup-ruby` \[*`command`* ...\]
 
 Installs and configures Homebrew's Ruby. If `command` is passed, it will only
 run Bundler if necessary for that command.
 
-### `shellenv [bash|csh|fish|pwsh|sh|tcsh|zsh]`
+### `shellenv` \[*`shell`* ...\]
+
+Valid shells: bash\|csh\|fish\|pwsh\|sh\|tcsh\|zsh
 
 Print export statements. When run in a shell, this installation of Homebrew will
 be added to your `PATH`, `MANPATH`, and `INFOPATH`.
@@ -1284,7 +1299,7 @@ Remove a tapped formula repository.
 
 : Untap even if formulae or casks from this tap are currently installed.
 
-### `update` \[*`options`*\]
+### `update`, `up` \[*`options`*\]
 
 Fetch the newest version of Homebrew and all formulae from GitHub using `git`(1)
 and perform any necessary migrations.
@@ -1301,7 +1316,15 @@ and perform any necessary migrations.
 
 : Always do a slower, full update check (even if unnecessary).
 
-### `update-reset` \[*`path-to-tap-repository`* ...\]
+`-v`, `--verbose`
+
+: Print the directories checked and `git` operations performed.
+
+`-d`, `--debug`
+
+: Display a trace of all shell commands as they are executed.
+
+### `update-reset` \[*`repository`* ...\]
 
 Fetch and reset Homebrew and all tap repositories (or any specified
 *`repository`*) using `git`(1) to their latest `origin/HEAD`.
@@ -1471,8 +1494,8 @@ dependency for their stable builds.
 
 Display Homebrew's download cache. See also `HOMEBREW_CACHE`.
 
-If *`formula`* is provided, display the file or directory used to cache
-*`formula`*.
+If a *`formula`* or *`cask`* is provided, display the file or directory used to
+cache it.
 
 `--os`
 
@@ -1744,9 +1767,9 @@ at its original value, while `--no-rebuild` will remove it.
 
 ### `bump` \[*`options`*\] \[*`formula`*\|*`cask`* ...\]
 
-Display out-of-date brew formulae and the latest version available. If the
-returned current and livecheck versions differ or when querying specific
-formulae, also displays whether a pull request has been opened with the URL.
+Displays out-of-date packages and the latest version available. If the returned
+current and livecheck versions differ or when querying specific packages, also
+displays whether a pull request has been opened with the URL.
 
 `--full-name`
 
@@ -1788,10 +1811,6 @@ formulae, also displays whether a pull request has been opened with the URL.
 `--open-pr`
 
 : Open a pull request for the new version if none have been opened yet.
-
-`--limit`
-
-: Limit number of package results returned.
 
 `--start-with`
 
@@ -2135,6 +2154,17 @@ see: <https://rubydoc.brew.sh/Formula>
 `-f`, `--force`
 
 : Ignore errors for disallowed formula names and names that shadow aliases.
+
+### `debugger` \[`--open`\] *`command`* \[...\]
+
+Run the specified Homebrew command in debug mode.
+
+To pass flags to the command, use `--` to separate them from the `brew` flags.
+For example: `brew debugger -- list --formula`.
+
+`-O`, `--open`
+
+: Start remote debugging over a Unix socket.
 
 ### `dispatch-build-bottle` \[*`options`*\] *`formula`* \[...\]
 
@@ -2745,7 +2775,7 @@ Run Homebrew's unit and integration tests.
 
 : Randomise tests with the specified *`value`* instead of a random seed.
 
-### `typecheck`, `tc` \[*`options`*\]
+### `typecheck`, `tc` \[*`options`*\] \[*`tap`* ...\]
 
 Check for typechecking errors using Sorbet.
 
@@ -2768,6 +2798,10 @@ Check for typechecking errors using Sorbet.
 `--suggest-typed`
 
 : Try upgrading `typed` sigils.
+
+`--lsp`
+
+: Start the Sorbet LSP server.
 
 `--dir`
 
@@ -3056,6 +3090,9 @@ a local machine).
 This workflow is useful for maintainers or testers who regularly install lots of
 formulae.
 
+Unless `--force` is passed, this returns a 1 exit code if anything would be
+removed.
+
 `brew bundle check`
 
 : Check if all dependencies present in the `Brewfile` are installed.
@@ -3121,27 +3158,32 @@ flags which will help with finding keg-only dependencies like `openssl`,
 
 `--formula`
 
-: `list` Homebrew formula dependencies.
+: `list` or `dump` Homebrew formula dependencies.
 
 `--cask`
 
-: `list` Homebrew cask dependencies.
+: `list` or `dump` Homebrew cask dependencies.
 
 `--tap`
 
-: `list` Homebrew tap dependencies.
+: `list` or `dump` Homebrew tap dependencies.
 
 `--mas`
 
-: `list` Mac App Store dependencies.
+: `list` or `dump` Mac App Store dependencies.
 
 `--whalebrew`
 
-: `list` Whalebrew dependencies.
+: `list` or `dump` Whalebrew dependencies.
 
 `--vscode`
 
-: `list` VSCode extensions.
+: `list` or `dump` VSCode extensions.
+
+`--no-vscode`
+
+: `dump` without VSCode extensions. This is enabled by default if
+  `HOMEBREW_BUNDLE_DUMP_NO_VSCODE` is set.
 
 `--describe`
 
@@ -3167,9 +3209,9 @@ the output is not to a tty, print the appropriate handler script for your shell.
 Manage background services with macOS' `launchctl`(1) daemon manager or Linux's
 `systemctl`(1) service manager.
 
-If `sudo` is passed, operate on
-`/Library/LaunchDaemons`/`/usr/lib/systemd/system` (started at boot). Otherwise,
-operate on `~/Library/LaunchAgents`/`~/.config/systemd/user` (started at login).
+If `sudo` is passed, operate on `/Library/LaunchDaemons` or
+`/usr/lib/systemd/system` (started at boot). Otherwise, operate on
+`~/Library/LaunchAgents` or `~/.config/systemd/user` (started at login).
 
 \[`sudo`\] `brew services` \[`list`\] (`--json`) (`--debug`)
 
@@ -3412,6 +3454,10 @@ and Linux workers.
 
 : Use these skipped or failed formulae from formulae steps for a formulae
   dependents step.
+
+`--tested-formulae`
+
+: Use these tested formulae from formulae steps for a formulae dependents step.
 
 ### `unalias` *`alias`* \[...\]
 
@@ -3685,6 +3731,11 @@ command execution e.g. `$(cat file)`.
 : If set, tweak behaviour to be more relevant for Homebrew developers (active or
   budding) by e.g. turning warnings into errors.
 
+`HOMEBREW_DISABLE_DEBREW`
+
+: If set, the interactive formula debugger available via `--debug` will be
+  disabled.
+
 `HOMEBREW_DISABLE_LOAD_FORMULA`
 
 : If set, refuse to load formulae. This is useful when formulae are not trusted
@@ -3747,8 +3798,8 @@ command execution e.g. `$(cat file)`.
 
 `HOMEBREW_FORBIDDEN_LICENSES`
 
-: A space-separated list of licenses. Homebrew will refuse to install a formula
-  if it or any of its dependencies has a license on this list.
+: A space-separated list of SPDX license identifiers. Homebrew will refuse to
+  install a formula if it or any of its dependencies has a license on this list.
 
 `HOMEBREW_FORBIDDEN_OWNER`
 
@@ -3764,6 +3815,11 @@ command execution e.g. `$(cat file)`.
 
 : A space-separated list of taps. Homebrew will refuse to install a formula if
   it or any of its dependencies is in a tap on this list.
+
+`HOMEBREW_FORBID_PACKAGES_FROM_PATHS`
+
+: If set, Homebrew will refuse to read formulae or casks provided from file
+  paths, e.g. `brew install ./package.rb`.
 
 `HOMEBREW_FORCE_BREWED_CA_CERTIFICATES`
 
@@ -3855,6 +3911,11 @@ command execution e.g. `$(cat file)`.
   *Default:* `$XDG_CONFIG_HOME/homebrew/livecheck_watchlist.txt` if
   `$XDG_CONFIG_HOME` is set or `$HOME/.homebrew/livecheck_watchlist.txt`
   otherwise.
+
+`HOMEBREW_LOCK_CONTEXT`
+
+: If set, Homebrew will add this output as additional context for locking
+  errors. This is useful when running `brew` in the background.
 
 `HOMEBREW_LOGS`
 
@@ -4111,14 +4172,14 @@ Popoff, Mike McQuaid and Rylan Polster.
 
 Homebrew's maintainers are Alexander Bayandin, Bevan Kay, Bo Anderson, Branch
 Vincent, Caleb Xu, Carlo Cabrera, Douglas Eichelberger, Dustin Rodrigues, Eric
-Knibbe, FX Coudert, Issy Long, Justin Krehel, Klaus Hipp, Markus Reiter, Miccal
-Matthews, Michael Cho, Michka Popoff, Mike McQuaid, Nanda H Krishna, Patrick
-Linnane, Razvan Azamfirei, Rui Chen, Ruoyu Zhong, Rylan Polster, Sam Ford, Sean
-Molenaar, Thierry Moisan, Timothy Sutton, William Woodruff and Štefan Baebler.
+Knibbe, FX Coudert, Issy Long, Justin Krehel, Klaus Hipp, Markus Reiter, Michael
+Cho, Michka Popoff, Mike McQuaid, Nanda H Krishna, Patrick Linnane, Rui Chen,
+Ruoyu Zhong, Rylan Polster, Sam Ford, Sean Molenaar, Thierry Moisan, Timothy
+Sutton, William Woodruff and Štefan Baebler.
 
-Former maintainers with significant contributions include Misty De Méo, Shaun
-Jackman, Vítor Galvão, Claudia Pellegrino, Seeker, Jan Viljanen, JCount,
-commitay, Dominyk Tiller, Tim Smith, Baptiste Fontaine, Xu Cheng, Martin
+Former maintainers with significant contributions include Miccal Matthews, Misty
+De Méo, Shaun Jackman, Vítor Galvão, Claudia Pellegrino, Seeker, Jan Viljanen,
+JCount, commitay, Dominyk Tiller, Tim Smith, Baptiste Fontaine, Xu Cheng, Martin
 Afanasjew, Brett Koonce, Charlie Sharpsteen, Jack Nagel, Adam Vandenberg, Andrew
 Janke, Alex Dunn, neutric, Tomasz Pajor, Uladzislau Shablinski, Alyssa Ross,
 ilovezfs, Chongyu Zhu and Homebrew's creator: Max Howell.

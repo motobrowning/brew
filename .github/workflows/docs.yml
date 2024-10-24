@@ -17,6 +17,10 @@ env:
   HOMEBREW_BOOTSNAP: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
 
+defaults:
+  run:
+    shell: bash -xeuo pipefail {0}
+
 jobs:
   docs:
     runs-on: ubuntu-22.04
@@ -30,7 +34,7 @@ jobs:
           test-bot: false
 
       - name: Checkout repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: Install vale
         run: brew install vale
@@ -38,8 +42,6 @@ jobs:
       - name: Cleanup Homebrew/brew docs
         if: github.repository == 'Homebrew/brew'
         run: |
-          set -xeuo pipefail
-
           # Avoid failing on broken symlinks.
           rm Library/Homebrew/os/mac/pkgconfig/fuse/fuse.pc
           rm Library/Homebrew/os/mac/pkgconfig/fuse/osxfuse.pc
@@ -51,7 +53,7 @@ jobs:
         run: vale docs/
 
       - name: Install Ruby
-        uses: ruby/setup-ruby@161cd54b698f1fb3ea539faab2e036d409550e3c # v1.187.0
+        uses: ruby/setup-ruby@7bae1d00b5db9166f4f0fc47985a3a5702cb58f0 # v1.197.0
         with:
           bundler-cache: true
           working-directory: docs

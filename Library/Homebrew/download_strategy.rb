@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "json"
@@ -24,13 +24,16 @@ require "github_packages"
 
 # @abstract Abstract superclass for all download strategies.
 class AbstractDownloadStrategy
-  extend Forwardable
   include FileUtils
   include Context
   include SystemCommand::Mixin
 
   # Extension for bottle downloads.
   module Pourable
+    extend T::Helpers
+
+    requires_ancestor { AbstractDownloadStrategy }
+
     def stage
       ohai "Pouring #{basename}"
       super
@@ -74,13 +77,6 @@ class AbstractDownloadStrategy
   sig { void }
   def quiet!
     @quiet = true
-  end
-
-  # Disable any output during downloading.
-  sig { void }
-  def shutup!
-    odisabled "`AbstractDownloadStrategy#shutup!`", "`AbstractDownloadStrategy#quiet!`"
-    quiet!
   end
 
   def quiet?
@@ -395,7 +391,7 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
   def fetch(timeout: nil)
     end_time = Time.now + timeout if timeout
 
-    download_lock = LockFile.new(temporary_path.basename)
+    download_lock = DownloadLock.new(temporary_path)
     download_lock.lock
 
     urls = [url, *mirrors]
@@ -646,15 +642,22 @@ class CurlApacheMirrorDownloadStrategy < CurlDownloadStrategy
   def combined_mirrors
     return @combined_mirrors if defined?(@combined_mirrors)
 
-    backup_mirrors = apache_mirrors.fetch("backup", [])
-                                   .map { |mirror| "#{mirror}#{apache_mirrors["path_info"]}" }
+    backup_mirrors = unless apache_mirrors["in_attic"]
+      apache_mirrors.fetch("backup", [])
+                    .map { |mirror| "#{mirror}#{apache_mirrors["path_info"]}" }
+    end
 
     @combined_mirrors = [*@mirrors, *backup_mirrors]
   end
 
   def resolve_url_basename_time_file_size(url, timeout: nil)
     if url == self.url
-      super("#{apache_mirrors["preferred"]}#{apache_mirrors["path_info"]}", timeout:)
+      preferred = if apache_mirrors["in_attic"]
+        "https://archive.apache.org/dist/"
+      else
+        apache_mirrors["preferred"]
+      end
+      super("#{preferred}#{apache_mirrors["path_info"]}", timeout:)
     else
       super
     end
@@ -708,6 +711,10 @@ class LocalBottleDownloadStrategy < AbstractFileDownloadStrategy
   def initialize(path) # rubocop:disable Lint/MissingSuper
     @cached_location = path
     extend Pourable
+  end
+
+  def clear_cache
+    # Path is used directly and not cached.
   end
 end
 
@@ -1040,13 +1047,15 @@ class GitDownloadStrategy < VCSDownloadStrategy
   sig { params(timeout: T.nilable(Time)).void }
   def update_submodules(timeout: nil)
     command! "git",
-             args:    ["submodule", "foreach", "--recursive", "git submodule sync"],
-             chdir:   cached_location,
-             timeout: Utils::Timer.remaining(timeout)
+             args:      ["submodule", "foreach", "--recursive", "git submodule sync"],
+             chdir:     cached_location,
+             timeout:   Utils::Timer.remaining(timeout),
+             reset_uid: true
     command! "git",
-             args:    ["submodule", "update", "--init", "--recursive"],
-             chdir:   cached_location,
-             timeout: Utils::Timer.remaining(timeout)
+             args:      ["submodule", "update", "--init", "--recursive"],
+             chdir:     cached_location,
+             timeout:   Utils::Timer.remaining(timeout),
+             reset_uid: true
     fix_absolute_submodule_gitdir_references!
   end
 
@@ -1059,8 +1068,9 @@ class GitDownloadStrategy < VCSDownloadStrategy
   # See https://github.com/Homebrew/homebrew-core/pull/1520 for an example.
   def fix_absolute_submodule_gitdir_references!
     submodule_dirs = command!("git",
-                              args:  ["submodule", "--quiet", "foreach", "--recursive", "pwd"],
-                              chdir: cached_location).stdout
+                              args:      ["submodule", "--quiet", "foreach", "--recursive", "pwd"],
+                              chdir:     cached_location,
+                              reset_uid: true).stdout
 
     submodule_dirs.lines.map(&:chomp).each do |submodule_dir|
       work_dir = Pathname.new(submodule_dir)

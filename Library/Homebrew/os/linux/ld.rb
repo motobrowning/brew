@@ -7,13 +7,18 @@ module OS
     module Ld
       sig { returns(String) }
       def self.brewed_ld_so_diagnostics
+        @brewed_ld_so_diagnostics ||= T.let({}, T.nilable(T::Hash[Pathname, String]))
+
         brewed_ld_so = HOMEBREW_PREFIX/"lib/ld.so"
         return "" unless brewed_ld_so.exist?
 
-        ld_so_output = Utils.popen_read(brewed_ld_so, "--list-diagnostics")
-        return "" unless $CHILD_STATUS.success?
+        brewed_ld_so_target = brewed_ld_so.readlink
+        @brewed_ld_so_diagnostics[brewed_ld_so_target] ||= begin
+          ld_so_output = Utils.popen_read(brewed_ld_so, "--list-diagnostics")
+          ld_so_output if $CHILD_STATUS.success?
+        end
 
-        ld_so_output
+        @brewed_ld_so_diagnostics[brewed_ld_so_target].to_s
       end
 
       sig { returns(String) }
@@ -43,6 +48,8 @@ module OS
       sig { params(conf_path: T.any(Pathname, String)).returns(T::Array[String]) }
       def self.library_paths(conf_path = Pathname(sysconfdir)/"ld.so.conf")
         conf_file = Pathname(conf_path)
+        return [] unless conf_file.exist?
+
         paths = Set.new
         directory = conf_file.realpath.dirname
 

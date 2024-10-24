@@ -1,14 +1,4 @@
-#:  * `update` [<options>]
-#:
-#:  Fetch the newest version of Homebrew and all formulae from GitHub using `git`(1) and perform any necessary migrations.
-#:
-#:        --merge                      Use `git merge` to apply updates (rather than `git rebase`).
-#:        --auto-update                Run on auto-updates (e.g. before `brew install`). Skips some slower steps.
-#:    -f, --force                      Always do a slower, full update check (even if unnecessary).
-#:    -q, --quiet                      Make some output more quiet.
-#:    -v, --verbose                    Print the directories checked and `git` operations performed.
-#:    -d, --debug                      Display a trace of all shell commands as they are executed.
-#:    -h, --help                       Show this message.
+# Documentation defined in Library/Homebrew/cmd/update.rb
 
 # HOMEBREW_CURLRC, HOMEBREW_DEVELOPER, HOMEBREW_GIT_EMAIL, HOMEBREW_GIT_NAME
 # HOMEBREW_UPDATE_CLEANUP, HOMEBREW_UPDATE_TO_TAG are from the user environment
@@ -92,18 +82,18 @@ git_init_if_necessary() {
   fi
 }
 
-repo_var_suffix() {
-  local repo_dir="${1}"
-  local repo_var_suffix
+repository_var_suffix() {
+  local repository_directory="${1}"
+  local repository_var_suffix
 
-  if [[ "${repo_dir}" == "${HOMEBREW_REPOSITORY}" ]]
+  if [[ "${repository_directory}" == "${HOMEBREW_REPOSITORY}" ]]
   then
-    repo_var_suffix=""
+    repository_var_suffix=""
   else
-    repo_var_suffix="${repo_dir#"${HOMEBREW_LIBRARY}/Taps"}"
-    repo_var_suffix="$(echo -n "${repo_var_suffix}" | tr -C "A-Za-z0-9" "_" | tr "[:lower:]" "[:upper:]")"
+    repository_var_suffix="${repository_directory#"${HOMEBREW_LIBRARY}/Taps"}"
+    repository_var_suffix="$(echo -n "${repository_var_suffix}" | tr -C "A-Za-z0-9" "_" | tr "[:lower:]" "[:upper:]")"
   fi
-  echo "${repo_var_suffix}"
+  echo "${repository_var_suffix}"
 }
 
 upstream_branch() {
@@ -396,7 +386,7 @@ EOS
 ${HOMEBREW_CELLAR} is not writable. You should change the
 ownership and permissions of ${HOMEBREW_CELLAR} back to your
 user account:
-  sudo chown -R \$(whoami) ${HOMEBREW_CELLAR}
+  sudo chown -R ${USER-\$(whoami)} ${HOMEBREW_CELLAR}
 EOS
   fi
 
@@ -498,6 +488,7 @@ EOS
 
   if [[ -z "${HOMEBREW_VERBOSE}" ]]
   then
+    export GIT_ADVICE="false"
     QUIET_ARGS=(-q)
   else
     QUIET_ARGS=()
@@ -601,7 +592,7 @@ EOS
       echo "Checking if we need to fetch ${DIR}..."
     fi
 
-    TAP_VAR="$(repo_var_suffix "${DIR}")"
+    TAP_VAR="$(repository_var_suffix "${DIR}")"
     UPSTREAM_BRANCH_DIR="$(upstream_branch)"
     declare UPSTREAM_BRANCH"${TAP_VAR}"="${UPSTREAM_BRANCH_DIR}"
     declare PREFETCH_REVISION"${TAP_VAR}"="$(git rev-parse -q --verify refs/remotes/origin/"${UPSTREAM_BRANCH_DIR}")"
@@ -787,7 +778,7 @@ EOS
       continue
     fi
 
-    TAP_VAR="$(repo_var_suffix "${DIR}")"
+    TAP_VAR="$(repository_var_suffix "${DIR}")"
     UPSTREAM_BRANCH_VAR="UPSTREAM_BRANCH${TAP_VAR}"
     UPSTREAM_BRANCH="${!UPSTREAM_BRANCH_VAR}"
     CURRENT_REVISION="$(read_current_revision)"

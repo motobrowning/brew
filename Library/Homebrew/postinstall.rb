@@ -8,20 +8,21 @@ old_trap = trap("INT") { exit! 130 }
 require_relative "global"
 
 require "fcntl"
-require "socket"
+require "utils/socket"
 require "cli/parser"
 require "cmd/postinstall"
 require "json/add/exception"
 
 begin
+  ENV.delete("HOMEBREW_FORBID_PACKAGES_FROM_PATHS")
   args = Homebrew::Cmd::Postinstall.new.args
-  error_pipe = UNIXSocket.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
+  error_pipe = Utils::UNIXSocketExt.open(ENV.fetch("HOMEBREW_ERROR_PIPE"), &:recv_io)
   error_pipe.fcntl(Fcntl::F_SETFD, Fcntl::FD_CLOEXEC)
 
   trap("INT", old_trap)
 
   formula = T.must(args.named.to_resolved_formulae.first)
-  if args.debug?
+  if args.debug? && !Homebrew::EnvConfig.disable_debrew?
     require "debrew"
     formula.extend(Debrew::Formula)
   end

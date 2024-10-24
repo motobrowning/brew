@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "open3"
@@ -11,6 +11,9 @@ module Utils
   module Curl
     include SystemCommand::Mixin
     extend SystemCommand::Mixin
+    extend T::Helpers
+
+    requires_ancestor { Kernel }
 
     # Error returned when the server sent data curl could not parse.
     CURL_WEIRD_SERVER_REPLY_EXIT_CODE = 8
@@ -18,6 +21,10 @@ module Utils
     # Error returned when `--fail` is used and the HTTP server returns an error
     # code that is >= 400.
     CURL_HTTP_RETURNED_ERROR_EXIT_CODE = 22
+
+    # Error returned when curl gets an error from the lowest networking layers
+    # that the receiving of data failed.
+    CURL_RECV_ERROR_EXIT_CODE = 56
 
     # This regex is used to extract the part of an ETag within quotation marks,
     # ignoring any leading weak validator indicator (`W/`). This simplifies
@@ -35,6 +42,7 @@ module Utils
 
     private_constant :CURL_WEIRD_SERVER_REPLY_EXIT_CODE,
                      :CURL_HTTP_RETURNED_ERROR_EXIT_CODE,
+                     :CURL_RECV_ERROR_EXIT_CODE,
                      :ETAG_VALUE_REGEX, :HTTP_RESPONSE_BODY_SEPARATOR,
                      :HTTP_STATUS_LINE_REGEX
 
@@ -65,7 +73,7 @@ module Utils
         show_error:      T.nilable(T::Boolean),
         user_agent:      T.any(String, Symbol, NilClass),
         referer:         T.nilable(String),
-      ).returns(T::Array[T.untyped])
+      ).returns(T::Array[String])
     }
     def curl_args(
       *extra_args,
@@ -129,7 +137,7 @@ module Utils
 
       args << "--referer" << referer if referer.present?
 
-      args + extra_args
+      (args + extra_args).map(&:to_s)
     end
 
     def curl_with_workarounds(
@@ -226,7 +234,11 @@ module Utils
     end
 
     def curl_headers(*args, wanted_headers: [], **options)
-      [[], ["--request", "GET"]].each do |request_args|
+      get_retry_args = ["--request", "GET"]
+      # This is a workaround for https://github.com/Homebrew/brew/issues/18213
+      get_retry_args << "--http1.1" if curl_version >= Version.new("8.7") && curl_version < Version.new("8.10")
+
+      [[], get_retry_args].each do |request_args|
         result = curl_output(
           "--fail", "--location", "--silent", "--head", *request_args, *args,
           **options
@@ -234,8 +246,11 @@ module Utils
 
         # We still receive usable headers with certain non-successful exit
         # statuses, so we special case them below.
-        if result.success? ||
-           [CURL_WEIRD_SERVER_REPLY_EXIT_CODE, CURL_HTTP_RETURNED_ERROR_EXIT_CODE].include?(result.exit_status)
+        if result.success? || [
+          CURL_WEIRD_SERVER_REPLY_EXIT_CODE,
+          CURL_HTTP_RETURNED_ERROR_EXIT_CODE,
+          CURL_RECV_ERROR_EXIT_CODE,
+        ].include?(result.exit_status)
           parsed_output = parse_curl_output(result.stdout)
 
           if request_args.empty?
@@ -452,9 +467,15 @@ module Utils
 
       if status.success?
         open_args = {}
+        content_type = headers["content-type"]
+
+        # Use the last `Content-Type` header if there is more than one instance
+        # in the response
+        content_type = content_type.last if content_type.is_a?(Array)
+
         # Try to get encoding from Content-Type header
         # TODO: add guessing encoding by <meta http-equiv="Content-Type" ...> tag
-        if (content_type = headers["content-type"]) &&
+        if content_type &&
            (match = content_type.match(/;\s*charset\s*=\s*([^\s]+)/)) &&
            (charset = match[1])
           begin
@@ -483,9 +504,14 @@ module Utils
       T.must(file).unlink
     end
 
+    def curl_version
+      @curl_version ||= {}
+      @curl_version[curl_path] ||= Version.new(curl_output("-V").stdout[/curl (\d+(\.\d+)+)/, 1])
+    end
+
     def curl_supports_fail_with_body?
       @curl_supports_fail_with_body ||= Hash.new do |h, key|
-        h[key] = Version.new(curl_output("-V").stdout[/curl (\d+(\.\d+)+)/, 1]) >= Version.new("7.76.0")
+        h[key] = curl_version >= Version.new("7.76.0")
       end
       @curl_supports_fail_with_body[curl_path]
     end

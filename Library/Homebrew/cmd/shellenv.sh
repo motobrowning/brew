@@ -1,13 +1,4 @@
-#:  * `shellenv [bash|csh|fish|pwsh|sh|tcsh|zsh]`
-#:
-#:  Print export statements. When run in a shell, this installation of Homebrew will be added to your `PATH`, `MANPATH`, and `INFOPATH`.
-#:
-#:  The variables `HOMEBREW_PREFIX`, `HOMEBREW_CELLAR` and `HOMEBREW_REPOSITORY` are also exported to avoid querying them multiple times.
-#:  To help guarantee idempotence, this command produces no output when Homebrew's `bin` and `sbin` directories are first and second
-#:  respectively in your `PATH`. Consider adding evaluation of this command's output to your dotfiles (e.g. `~/.bash_profile` or
-#:  `~/.zprofile` on macOS and `~/.bashrc` or `~/.zshrc` on Linux) with: `eval "$(brew shellenv)"`
-#:
-#:  The shell can be specified explicitly with a supported shell name parameter. Unknown shells will output POSIX exports.
+# Documentation defined in Library/Homebrew/cmd/shellenv.rb
 
 # HOMEBREW_CELLAR and HOMEBREW_PREFIX are set by extend/ENV/super.rb
 # HOMEBREW_REPOSITORY is set by bin/brew
@@ -27,22 +18,52 @@ homebrew-shellenv() {
     HOMEBREW_SHELL_NAME="$(/bin/ps -p "${PPID}" -c -o comm=)"
   fi
 
+  if [[ -n "${HOMEBREW_MACOS}" ]] &&
+     [[ "${HOMEBREW_MACOS_VERSION_NUMERIC}" -ge "140000" ]] &&
+     [[ -x /usr/libexec/path_helper ]]
+  then
+    HOMEBREW_PATHS_FILE="${HOMEBREW_PREFIX}/etc/paths"
+
+    if [[ ! -f "${HOMEBREW_PATHS_FILE}" ]]
+    then
+      printf '%s/bin\n%s/sbin\n' "${HOMEBREW_PREFIX}" "${HOMEBREW_PREFIX}" 2>/dev/null >"${HOMEBREW_PATHS_FILE}"
+    fi
+
+    if [[ -r "${HOMEBREW_PATHS_FILE}" ]]
+    then
+      PATH_HELPER_ROOT="${HOMEBREW_PREFIX}"
+    fi
+  fi
+
   case "${HOMEBREW_SHELL_NAME}" in
     fish | -fish)
-      echo "set -gx HOMEBREW_PREFIX \"${HOMEBREW_PREFIX}\";"
-      echo "set -gx HOMEBREW_CELLAR \"${HOMEBREW_CELLAR}\";"
-      echo "set -gx HOMEBREW_REPOSITORY \"${HOMEBREW_REPOSITORY}\";"
-      echo "fish_add_path -gP \"${HOMEBREW_PREFIX}/bin\" \"${HOMEBREW_PREFIX}/sbin\";"
-      echo "set -q MANPATH; and set MANPATH[1] \":\$(string trim --left --chars=\":\" \$MANPATH[1])\";"
-      echo "! set -q INFOPATH; and set INFOPATH ''; set -gx INFOPATH \"${HOMEBREW_PREFIX}/share/info\" \$INFOPATH;"
+      echo "set --global --export HOMEBREW_PREFIX \"${HOMEBREW_PREFIX}\";"
+      echo "set --global --export HOMEBREW_CELLAR \"${HOMEBREW_CELLAR}\";"
+      echo "set --global --export HOMEBREW_REPOSITORY \"${HOMEBREW_REPOSITORY}\";"
+      echo "fish_add_path --global --move --path \"${HOMEBREW_PREFIX}/bin\" \"${HOMEBREW_PREFIX}/sbin\";"
+      echo "if test -n \"\$MANPATH[1]\"; set --global --export MANPATH '' \$MANPATH; end;"
+      echo "if not contains \"${HOMEBREW_PREFIX}/share/info\" \$INFOPATH; set --global --export INFOPATH \"${HOMEBREW_PREFIX}/share/info\" \$INFOPATH; end;"
+      if [[ -n "${HOMEBREW_LINUX}" ]]
+      then
+        echo "if test -n \"\$XDG_DATA_DIRS\"; set --global --export XDG_DATA_DIRS \"${HOMEBREW_PREFIX}/share\" \$XDG_DATA_DIRS; end;"
+      fi
       ;;
     csh | -csh | tcsh | -tcsh)
       echo "setenv HOMEBREW_PREFIX ${HOMEBREW_PREFIX};"
       echo "setenv HOMEBREW_CELLAR ${HOMEBREW_CELLAR};"
       echo "setenv HOMEBREW_REPOSITORY ${HOMEBREW_REPOSITORY};"
-      echo "setenv PATH ${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:\$PATH;"
-      echo "if ( \${?MANPATH} == 1 ) setenv MANPATH :\${MANPATH};"
-      echo "setenv INFOPATH ${HOMEBREW_PREFIX}/share/info\`if ( \${?INFOPATH} == 1 ) echo \":\${INFOPATH}\"\`;"
+      if [[ -n "${PATH_HELPER_ROOT}" ]]
+      then
+        PATH_HELPER_ROOT="${PATH_HELPER_ROOT}" PATH="${HOMEBREW_PATH}" /usr/libexec/path_helper -c
+      else
+        echo "setenv PATH ${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:\$PATH;"
+      fi
+      echo "test \${?MANPATH} -eq 1 && setenv MANPATH :\${MANPATH};"
+      echo "setenv INFOPATH ${HOMEBREW_PREFIX}/share/info\`test \${?INFOPATH} -eq 1 && echo :\${INFOPATH}\`;"
+      if [[ -n "${HOMEBREW_LINUX}" ]]
+      then
+        echo "test \${?XDG_DATA_DIRS} -eq 1 && setenv XDG_DATA_DIRS \"${HOMEBREW_PREFIX}/share:\$XDG_DATA_DIRS\";"
+      fi
       ;;
     pwsh | -pwsh | pwsh-preview | -pwsh-preview)
       echo "[System.Environment]::SetEnvironmentVariable('HOMEBREW_PREFIX','${HOMEBREW_PREFIX}',[System.EnvironmentVariableTarget]::Process)"
@@ -51,14 +72,31 @@ homebrew-shellenv() {
       echo "[System.Environment]::SetEnvironmentVariable('PATH',\$('${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:'+\$ENV:PATH),[System.EnvironmentVariableTarget]::Process)"
       echo "[System.Environment]::SetEnvironmentVariable('MANPATH',\$('${HOMEBREW_PREFIX}/share/man'+\$(if(\${ENV:MANPATH}){':'+\${ENV:MANPATH}})+':'),[System.EnvironmentVariableTarget]::Process)"
       echo "[System.Environment]::SetEnvironmentVariable('INFOPATH',\$('${HOMEBREW_PREFIX}/share/info'+\$(if(\${ENV:INFOPATH}){':'+\${ENV:INFOPATH}})),[System.EnvironmentVariableTarget]::Process)"
+      if [[ -n "${HOMEBREW_LINUX}" ]]
+      then
+        echo "if(\${ENV:XDG_DATA_DIRS}){[System.Environment]::SetEnvironmentVariable('XDG_DATA_DIRS',\$('${HOMEBREW_PREFIX}/share:'+\${ENV:XDG_DATA_DIRS}),[System.EnvironmentVariableTarget]::Process)}"
+      fi
       ;;
     *)
       echo "export HOMEBREW_PREFIX=\"${HOMEBREW_PREFIX}\";"
       echo "export HOMEBREW_CELLAR=\"${HOMEBREW_CELLAR}\";"
       echo "export HOMEBREW_REPOSITORY=\"${HOMEBREW_REPOSITORY}\";"
-      echo "export PATH=\"${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin\${PATH+:\$PATH}\";"
+      if [[ "${HOMEBREW_SHELL_NAME}" == "zsh" ]] || [[ "${HOMEBREW_SHELL_NAME}" == "-zsh" ]]
+      then
+        echo "fpath[1,0]=\"${HOMEBREW_PREFIX}/share/zsh/site-functions\";"
+      fi
+      if [[ -n "${PATH_HELPER_ROOT}" ]]
+      then
+        PATH_HELPER_ROOT="${PATH_HELPER_ROOT}" PATH="${HOMEBREW_PATH}" /usr/libexec/path_helper -s
+      else
+        echo "export PATH=\"${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin\${PATH+:\$PATH}\";"
+      fi
       echo "[ -z \"\${MANPATH-}\" ] || export MANPATH=\":\${MANPATH#:}\";"
       echo "export INFOPATH=\"${HOMEBREW_PREFIX}/share/info:\${INFOPATH:-}\";"
+      if [[ -n "${HOMEBREW_LINUX}" ]]
+      then
+        echo "[ -z \"\${XDG_DATA_DIRS-}\" ] || export XDG_DATA_DIRS=\"${HOMEBREW_PREFIX}/share:\${XDG_DATA_DIRS-}\";"
+      fi
       ;;
   esac
 }

@@ -6,11 +6,9 @@ gem:
     - json
     # These aren't needed:
     - coderay
-    - commander
     - diff-lcs
     - docile
     - hana
-    - highline
     - language_server-protocol
     - netrc
     - parallel
@@ -24,7 +22,6 @@ gem:
     - rspec_junit_formatter
     - rubocop-md
     - rubocop-performance
-    - rubocop-rspec
     - rubocop-sorbet
     - ruby-prof
     - simplecov_json_formatter

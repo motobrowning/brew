@@ -386,7 +386,7 @@ RSpec.describe Cask::Installer, :cask do
         described_class.new(cask).forbidden_tap_check
       end.to raise_error(Cask::CaskCannotBeInstalledError, /from the #{dep_tap} tap but/)
     ensure
-      dep_path.parent.parent.rmtree
+      FileUtils.rm_r(dep_path.parent.parent)
     end
   end
 
@@ -399,7 +399,7 @@ RSpec.describe Cask::Installer, :cask do
 
       expect do
         described_class.new(cask).forbidden_cask_and_formula_check
-      end.to raise_error(Cask::CaskCannotBeInstalledError, /#{cask_name} was forbidden/)
+      end.to raise_error(Cask::CaskCannotBeInstalledError, /forbidden for installation/)
     end
 
     it "raises on forbidden dependency" do
