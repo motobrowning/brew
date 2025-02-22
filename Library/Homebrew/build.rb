@@ -148,12 +148,15 @@ class Build
           # https://github.com/Homebrew/homebrew-core/pull/87470
           TZ:                         "UTC0",
         ) do
-          formula.patch
-
           if args.git?
+            formula.selective_patch(is_data: false)
             system "git", "init"
             system "git", "add", "-A"
+            formula.selective_patch(is_data: true)
+          else
+            formula.patch
           end
+
           if args.interactive?
             ohai "Entering interactive mode..."
             puts <<~EOS
@@ -230,6 +233,8 @@ begin
   options = Options.create(args.flags_only)
   build   = Build.new(formula, options, args:)
   build.install
+# Any exception means the build did not complete.
+# The `case` for what to do per-exception class is further down.
 rescue Exception => e # rubocop:disable Lint/RescueException
   error_hash = JSON.parse e.to_json
 

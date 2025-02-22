@@ -1,3 +1,7 @@
+---
+last_review_date: "2025-02-08"
+---
+
 # Maintainers: Avoiding Burnout
 
 **This guide is for maintainers.** These special people have **write

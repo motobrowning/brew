@@ -13,6 +13,9 @@ module Homebrew
   # command. These methods print the requested livecheck information
   # for formulae.
   module Livecheck
+    NO_CURRENT_VERSION_MSG = "Unable to identify current version"
+    NO_VERSIONS_MSG = "Unable to get versions"
+
     UNSTABLE_VERSION_KEYWORDS = T.let(%w[
       alpha
       beta
@@ -79,7 +82,7 @@ module Homebrew
       full_name: false,
       debug: false
     )
-      # Check the livecheck block for a formula or cask reference
+      # Check the `livecheck` block for a formula or cask reference
       livecheck = formula_or_cask.livecheck
       livecheck_formula = livecheck.formula
       livecheck_cask = livecheck.cask
@@ -195,8 +198,13 @@ module Homebrew
       extract_plist = true if formulae_and_casks_total == 1
 
       formulae_checked = formulae_and_casks_to_check.map.with_index do |formula_or_cask, i|
-        formula = formula_or_cask if formula_or_cask.is_a?(Formula)
-        cask = formula_or_cask if formula_or_cask.is_a?(Cask::Cask)
+        case formula_or_cask
+        when Formula
+          formula = formula_or_cask
+          formula.head&.downloader&.quiet!
+        when Cask::Cask
+          cask = formula_or_cask
+        end
 
         use_full_name = full_name || ambiguous_names.include?(formula_or_cask)
         name = package_or_resource_name(formula_or_cask, full_name: use_full_name)
@@ -238,20 +246,25 @@ module Homebrew
           next
         end
 
-        formula&.head&.downloader&.quiet!
-
         # Use the `stable` version for comparison except for installed
         # head-only formulae. A formula with `stable` and `head` that's
         # installed using `--head` will still use the `stable` version for
         # comparison.
         current = if formula
           if formula.head_only?
-            Version.new(formula.any_installed_version.version.commit)
-          else
-            T.must(formula.stable).version
+            formula_commit = formula.any_installed_version&.version&.commit
+            Version.new(formula_commit) if formula_commit
+          elsif (stable = formula.stable)
+            stable.version
           end
         else
           Version.new(formula_or_cask.version)
+        end
+        unless current
+          raise Livecheck::Error, NO_CURRENT_VERSION_MSG unless json
+          next if quiet
+
+          next status_hash(formula_or_cask, "error", [NO_CURRENT_VERSION_MSG], full_name: use_full_name, verbose:)
         end
 
         current_str = current.to_s
@@ -280,12 +293,13 @@ module Homebrew
                 resource,
                 latest.to_s,
                 json:,
+                full_name: use_full_name,
                 debug:,
                 quiet:,
                 verbose:,
               )
               if res_version_info.empty?
-                status_hash(resource, "error", ["Unable to get versions"], verbose:)
+                status_hash(resource, "error", [NO_VERSIONS_MSG], verbose:)
               else
                 res_version_info
               end
@@ -295,13 +309,12 @@ module Homebrew
         end
 
         if latest.blank?
-          no_versions_msg = "Unable to get versions"
-          raise Livecheck::Error, no_versions_msg unless json
+          raise Livecheck::Error, NO_VERSIONS_MSG unless json
           next if quiet
 
           next version_info if version_info.is_a?(Hash) && version_info[:status] && version_info[:messages]
 
-          latest_info = status_hash(formula_or_cask, "error", [no_versions_msg], full_name: use_full_name,
+          latest_info = status_hash(formula_or_cask, "error", [NO_VERSIONS_MSG], full_name: use_full_name,
                                                                                  verbose:)
           if check_for_resources
             unless verbose
@@ -344,7 +357,7 @@ module Homebrew
           newer_than_upstream: is_newer_than_upstream,
         }.compact
         info[:meta] = {
-          livecheckable: formula_or_cask.livecheckable?,
+          livecheck_defined: formula_or_cask.livecheck_defined?,
         }
         info[:meta][:head_only] = true if formula&.head_only?
         info[:meta].merge!(version_info[:meta]) if version_info.present? && version_info.key?(:meta)
@@ -462,7 +475,7 @@ module Homebrew
       status_hash[:messages] = messages if messages.is_a?(Array)
 
       status_hash[:meta] = {
-        livecheckable: package_or_resource.livecheckable?,
+        livecheck_defined: package_or_resource.livecheck_defined?,
       }
       status_hash[:meta][:head_only] = true if formula&.head_only?
 
@@ -475,7 +488,7 @@ module Homebrew
       package_or_resource_s = info[:resource].present? ? "  " : ""
       package_or_resource_s += "#{Tty.blue}#{info[:formula] || info[:cask] || info[:resource]}#{Tty.reset}"
       package_or_resource_s += " (cask)" if ambiguous_cask
-      package_or_resource_s += " (guessed)" if verbose && !info[:meta][:livecheckable]
+      package_or_resource_s += " (guessed)" if verbose && !info[:meta][:livecheck_defined]
 
       current_s = if info[:version][:newer_than_upstream]
         "#{Tty.red}#{info[:version][:current]}#{Tty.reset}"
@@ -508,10 +521,10 @@ module Homebrew
       params(
         livecheck_url:       T.any(String, Symbol),
         package_or_resource: T.any(Formula, Cask::Cask, Resource),
-      ).returns(T.nilable(String))
+      ).returns(String)
     }
     def self.livecheck_url_to_string(livecheck_url, package_or_resource)
-      case livecheck_url
+      livecheck_url_string = case livecheck_url
       when String
         livecheck_url
       when :url
@@ -521,6 +534,12 @@ module Homebrew
       when :homepage
         package_or_resource.homepage unless package_or_resource.is_a?(Resource)
       end
+
+      if livecheck_url.is_a?(Symbol) && !livecheck_url_string
+        raise ArgumentError, "`url #{livecheck_url.inspect}` does not reference a checkable URL"
+      end
+
+      livecheck_url_string
     end
 
     # Returns an Array containing the formula/cask/resource URLs that can be used by livecheck.
@@ -599,11 +618,12 @@ module Homebrew
       formula = formula_or_cask if formula_or_cask.is_a?(Formula)
       cask = formula_or_cask if formula_or_cask.is_a?(Cask::Cask)
 
-      has_livecheckable = formula_or_cask.livecheckable?
+      livecheck_defined = formula_or_cask.livecheck_defined?
       livecheck = formula_or_cask.livecheck
       referenced_livecheck = referenced_formula_or_cask&.livecheck
 
       livecheck_url = livecheck.url || referenced_livecheck&.url
+      livecheck_url_options = livecheck.url_options || referenced_livecheck&.url_options
       livecheck_regex = livecheck.regex || referenced_livecheck&.regex
       livecheck_strategy = livecheck.strategy || referenced_livecheck&.strategy
       livecheck_strategy_block = livecheck.strategy_block || referenced_livecheck&.strategy_block
@@ -623,7 +643,7 @@ module Homebrew
         elsif cask
           puts "Cask:             #{cask_name(formula_or_cask, full_name:)}"
         end
-        puts "Livecheckable?:   #{has_livecheckable ? "Yes" : "No"}"
+        puts "livecheck block?: #{livecheck_defined ? "Yes" : "No"}"
         puts "Throttle:         #{livecheck_throttle}" if livecheck_throttle
 
         livecheck_references.each do |ref_formula_or_cask|
@@ -660,14 +680,15 @@ module Homebrew
           if livecheck_url.is_a?(Symbol)
             # This assumes the URL symbol will fit within the available space
             puts "URL (#{livecheck_url}):".ljust(18, " ") + original_url
-          else
+          elsif original_url.present? && original_url != "None"
             puts "URL:              #{original_url}"
           end
+          puts "URL Options:      #{livecheck_url_options}" if livecheck_url_options.present?
           puts "URL (processed):  #{url}" if url != original_url
           if strategies.present? && verbose
             puts "Strategies:       #{strategies.map { |s| livecheck_strategy_names[s] }.join(", ")}"
           end
-          puts "Strategy:         #{strategy.blank? ? "None" : strategy_name}"
+          puts "Strategy:         #{strategy_name}" if strategy.present?
           puts "Regex:            #{livecheck_regex.inspect}" if livecheck_regex.present?
         end
 
@@ -691,6 +712,7 @@ module Homebrew
 
         strategy_args = {
           regex:         livecheck_regex,
+          url_options:   livecheck_url_options,
           homebrew_curl:,
         }
         # TODO: Set `cask`/`url` args based on the presence of the keyword arg
@@ -727,7 +749,7 @@ module Homebrew
 
         match_version_map.delete_if do |_match, version|
           next true if version.blank?
-          next false if has_livecheckable
+          next false if livecheck_defined
 
           UNSTABLE_VERSION_KEYWORDS.any? do |rejection|
             version.to_s.include?(rejection)
@@ -788,17 +810,19 @@ module Homebrew
             end
           end
 
-          version_info[:meta][:url] = {}
-          version_info[:meta][:url][:symbol] = livecheck_url if livecheck_url.is_a?(Symbol) && livecheck_url_string
-          version_info[:meta][:url][:original] = original_url
-          version_info[:meta][:url][:processed] = url if url != original_url
-          if strategy_data[:url].present? && strategy_data[:url] != url
-            version_info[:meta][:url][:strategy] = strategy_data[:url]
+          if url != "None"
+            version_info[:meta][:url] = {}
+            version_info[:meta][:url][:symbol] = livecheck_url if livecheck_url.is_a?(Symbol) && livecheck_url_string
+            version_info[:meta][:url][:original] = original_url
+            version_info[:meta][:url][:processed] = url if url != original_url
+            if strategy_data[:url].present? && strategy_data[:url] != url
+              version_info[:meta][:url][:strategy] = strategy_data[:url]
+            end
+            version_info[:meta][:url][:final] = strategy_data[:final_url] if strategy_data[:final_url]
+            version_info[:meta][:url][:options] = livecheck_url_options if livecheck_url_options.present?
+            version_info[:meta][:url][:homebrew_curl] = homebrew_curl if homebrew_curl.present?
           end
-          version_info[:meta][:url][:final] = strategy_data[:final_url] if strategy_data[:final_url]
-          version_info[:meta][:url][:homebrew_curl] = homebrew_curl if homebrew_curl.present?
-
-          version_info[:meta][:strategy] = strategy.present? ? strategy_name : nil
+          version_info[:meta][:strategy] = strategy_name if strategy.present?
           version_info[:meta][:strategies] = strategies.map { |s| livecheck_strategy_names[s] } if strategies.present?
           version_info[:meta][:regex] = regex.inspect if regex.present?
           version_info[:meta][:cached] = true if strategy_data[:cached] == true
@@ -817,6 +841,7 @@ module Homebrew
         resource:       Resource,
         formula_latest: String,
         json:           T::Boolean,
+        full_name:      T::Boolean,
         debug:          T::Boolean,
         quiet:          T::Boolean,
         verbose:        T::Boolean,
@@ -826,29 +851,33 @@ module Homebrew
       resource,
       formula_latest,
       json: false,
+      full_name: false,
       debug: false,
       quiet: false,
       verbose: false
     )
-      has_livecheckable = resource.livecheckable?
+      livecheck_defined = resource.livecheck_defined?
 
       if debug
         puts "\n\n"
         puts "Resource:         #{resource.name}"
-        puts "Livecheckable?:   #{has_livecheckable ? "Yes" : "No"}"
+        puts "livecheck block?: #{livecheck_defined ? "Yes" : "No"}"
       end
 
       resource_version_info = {}
 
       livecheck = resource.livecheck
+      livecheck_reference = livecheck.formula
       livecheck_url = livecheck.url
+      livecheck_url_options = livecheck.url_options
       livecheck_regex = livecheck.regex
       livecheck_strategy = livecheck.strategy
       livecheck_strategy_block = livecheck.strategy_block
 
-      livecheck_url_string = livecheck_url_to_string(livecheck_url, resource)
+      livecheck_url_string = livecheck_url_to_string(livecheck_url, resource) if livecheck_url
 
       urls = [livecheck_url_string] if livecheck_url_string
+      urls = ["None"] if livecheck_reference == :parent
       urls ||= checkable_urls(resource)
 
       checked_urls = []
@@ -875,15 +904,19 @@ module Homebrew
           if livecheck_url.is_a?(Symbol)
             # This assumes the URL symbol will fit within the available space
             puts "URL (#{livecheck_url}):".ljust(18, " ") + original_url
-          else
+          elsif original_url.present? && original_url != "None"
             puts "URL:              #{original_url}"
           end
+          puts "URL Options:      #{livecheck_url_options}" if livecheck_url_options.present?
           puts "URL (processed):  #{url}" if url != original_url
           if strategies.present? && verbose
             puts "Strategies:       #{strategies.map { |s| livecheck_strategy_names[s] }.join(", ")}"
           end
-          puts "Strategy:         #{strategy.blank? ? "None" : strategy_name}"
+          puts "Strategy:         #{strategy_name}" if strategy.present?
           puts "Regex:            #{livecheck_regex.inspect}" if livecheck_regex.present?
+          if livecheck_reference == :parent
+            puts "Formula Ref:      #{full_name ? resource.owner.full_name : resource.owner.name} (parent)"
+          end
         end
 
         if livecheck_strategy.present?
@@ -895,19 +928,27 @@ module Homebrew
             next
           end
         end
-        puts if debug && strategy.blank?
-        next if strategy.blank?
+        puts if debug && strategy.blank? && livecheck_reference != :parent
+        next if strategy.blank? && livecheck_reference != :parent
 
-        strategy_args = {
-          url:,
-          regex:         livecheck_regex,
-          homebrew_curl: false,
-        }.compact
+        if livecheck_reference == :parent
+          match_version_map = { formula_latest => Version.new(formula_latest) }
+          cached = true
+        else
+          strategy_args = {
+            url:,
+            regex:         livecheck_regex,
+            url_options:   livecheck_url_options,
+            homebrew_curl: false,
+          }.compact
 
-        strategy_data = strategy.find_versions(**strategy_args, &livecheck_strategy_block)
-        match_version_map = strategy_data[:matches]
-        regex = strategy_data[:regex]
-        messages = strategy_data[:messages]
+          strategy_data = strategy.find_versions(**strategy_args, &livecheck_strategy_block)
+          match_version_map = strategy_data[:matches]
+          regex = strategy_data[:regex]
+          messages = strategy_data[:messages]
+          cached = strategy_data[:cached]
+        end
+
         checked_urls << url
 
         if messages.is_a?(Array) && match_version_map.blank?
@@ -918,19 +959,19 @@ module Homebrew
         end
 
         if debug
-          if strategy_data[:url].present? && strategy_data[:url] != url
+          if strategy_data&.dig(:url).present? && strategy_data[:url] != url
             puts "URL (strategy):   #{strategy_data[:url]}"
           end
-          puts "URL (final):      #{strategy_data[:final_url]}" if strategy_data[:final_url].present?
-          if strategy_data[:regex].present? && strategy_data[:regex] != livecheck_regex
+          puts "URL (final):      #{strategy_data[:final_url]}" if strategy_data&.dig(:final_url).present?
+          if strategy_data&.dig(:regex).present? && strategy_data[:regex] != livecheck_regex
             puts "Regex (strategy): #{strategy_data[:regex].inspect}"
           end
-          puts "Cached?:          Yes" if strategy_data[:cached] == true
+          puts "Cached?:          Yes" if cached == true
         end
 
         match_version_map.delete_if do |_match, version|
           next true if version.blank?
-          next false if has_livecheckable
+          next false if livecheck_defined
 
           UNSTABLE_VERSION_KEYWORDS.any? do |rejection|
             version.to_s.include?(rejection)
@@ -954,7 +995,7 @@ module Homebrew
         res_current = T.must(resource.version)
         res_latest = Version.new(match_version_map.values.max_by { |v| LivecheckVersion.create(resource, v) })
 
-        return status_hash(resource, "error", ["Unable to get versions"], verbose:) if res_latest.blank?
+        return status_hash(resource, "error", [NO_VERSIONS_MSG], verbose:) if res_latest.blank?
 
         is_outdated = res_current < res_latest
         is_newer_than_upstream = res_current > res_latest
@@ -969,22 +1010,32 @@ module Homebrew
           },
         }
 
-        resource_version_info[:meta] = { livecheckable: has_livecheckable, url: {} }
-        if livecheck_url.is_a?(Symbol) && livecheck_url_string
-          resource_version_info[:meta][:url][:symbol] = livecheck_url
+        resource_version_info[:meta] = {
+          livecheck_defined: livecheck_defined,
+        }
+        if livecheck_reference == :parent
+          resource_version_info[:meta][:references] =
+            [{ formula: full_name ? resource.owner.full_name : resource.owner.name, symbol: :parent }]
         end
-        resource_version_info[:meta][:url][:original] = original_url
-        resource_version_info[:meta][:url][:processed] = url if url != original_url
-        if strategy_data[:url].present? && strategy_data[:url] != url
-          resource_version_info[:meta][:url][:strategy] = strategy_data[:url]
+        if url != "None"
+          resource_version_info[:meta][:url] = {}
+          if livecheck_url.is_a?(Symbol) && livecheck_url_string
+            resource_version_info[:meta][:url][:symbol] = livecheck_url
+          end
+          resource_version_info[:meta][:url][:original] = original_url
+          resource_version_info[:meta][:url][:processed] = url if url != original_url
+          if strategy_data&.dig(:url).present? && strategy_data[:url] != url
+            resource_version_info[:meta][:url][:strategy] = strategy_data[:url]
+          end
+          resource_version_info[:meta][:url][:final] = strategy_data[:final_url] if strategy_data&.dig(:final_url)
+          resource_version_info[:meta][:url][:options] = livecheck_url_options if livecheck_url_options.present?
         end
-        resource_version_info[:meta][:url][:final] = strategy_data[:final_url] if strategy_data[:final_url]
-        resource_version_info[:meta][:strategy] = strategy.present? ? strategy_name : nil
+        resource_version_info[:meta][:strategy] = strategy_name if strategy.present?
         if strategies.present?
           resource_version_info[:meta][:strategies] = strategies.map { |s| livecheck_strategy_names[s] }
         end
         resource_version_info[:meta][:regex] = regex.inspect if regex.present?
-        resource_version_info[:meta][:cached] = true if strategy_data[:cached] == true
+        resource_version_info[:meta][:cached] = true if cached == true
       rescue => e
         Homebrew.failed = true
         if json

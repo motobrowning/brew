@@ -19,6 +19,10 @@ require "build_environment"
 require "build_options"
 require "formulary"
 require "software_spec"
+require "bottle"
+require "pour_bottle_check"
+require "head_software_spec"
+require "bottle_specification"
 require "livecheck"
 require "service"
 require "install_renamed"
@@ -77,6 +81,9 @@ class Formula
   extend Cachable
   extend Attrable
   extend APIHashable
+  extend T::Helpers
+
+  abstract!
 
   SUPPORTED_NETWORK_ACCESS_PHASES = [:build, :test, :postinstall].freeze
   private_constant :SUPPORTED_NETWORK_ACCESS_PHASES
@@ -452,6 +459,11 @@ class Formula
   delegate livecheck: :"self.class"
 
   # Is a livecheck specification defined for the software?
+  # @!method livecheck_defined?
+  # @see .livecheck_defined?
+  delegate livecheck_defined?: :"self.class"
+
+  # Is a livecheck specification defined for the software?
   # @!method livecheckable?
   # @see .livecheckable?
   delegate livecheckable?: :"self.class"
@@ -593,7 +605,11 @@ class Formula
   # @api internal
   sig { returns(T::Array[String]) }
   def aliases
-    @aliases ||= tap&.alias_reverse_table&.dig(full_name)&.map { _1.split("/").last } || []
+    @aliases ||= if (tap = self.tap)
+      tap.alias_reverse_table.fetch(full_name, []).map { _1.split("/").last }
+    else
+      []
+    end
   end
 
   # The {Resource}s for the currently active {SoftwareSpec}.
@@ -645,6 +661,8 @@ class Formula
   end
 
   # If at least one version of {Formula} is installed.
+  #
+  # @api public
   sig { returns(T::Boolean) }
   def any_version_installed?
     installed_prefixes.any? { |keg| (keg/AbstractTab::FILENAME).file? }
@@ -708,8 +726,10 @@ class Formula
   # This directory points to {#opt_prefix} if it exists and if {#prefix} is not
   # called from within the same formula's {#install} or {#post_install} methods.
   # Otherwise, return the full path to the formula's versioned cellar.
+  sig { params(version: T.any(String, PkgVersion)).returns(Pathname) }
   def prefix(version = pkg_version)
     versioned_prefix = versioned_prefix(version)
+    version = PkgVersion.parse(version) if version.is_a?(String)
     if !@prefix_returns_versioned_prefix && version == pkg_version &&
        versioned_prefix.directory? && Keg.new(versioned_prefix).optlinked?
       opt_prefix
@@ -1483,7 +1503,7 @@ class Formula
   # @see .link_overwrite
   def link_overwrite?(path)
     # Don't overwrite files not created by Homebrew.
-    return false if path.stat.uid != HOMEBREW_BREW_FILE.stat.uid
+    return false if path.stat.uid != HOMEBREW_ORIGINAL_BREW_FILE.stat.uid
 
     # Don't overwrite files belong to other keg except when that
     # keg's formula is deleted.
@@ -1536,6 +1556,13 @@ class Formula
   # @see .deprecate!
   delegate deprecation_reason: :"self.class"
 
+  # The replacement for this deprecated {Formula}.
+  # Returns `nil` if no replacement is specified or the formula is not deprecated.
+  # @!method deprecation_replacement
+  # @return [String]
+  # @see .deprecate!
+  delegate deprecation_replacement: :"self.class"
+
   # Whether this {Formula} is disabled (i.e. cannot be installed).
   # Defaults to false.
   # @!method disabled?
@@ -1557,6 +1584,13 @@ class Formula
   # @see .disable!
   delegate disable_reason: :"self.class"
 
+  # The replacement for this disabled {Formula}.
+  # Returns `nil` if no replacement is specified or the formula is not disabled.
+  # @!method disable_replacement
+  # @return [String]
+  # @see .disable!
+  delegate disable_replacement: :"self.class"
+
   sig { returns(T::Boolean) }
   def skip_cxxstdlib_check?
     false
@@ -1574,9 +1608,27 @@ class Formula
     patchlist.each(&:apply)
   end
 
+  sig { params(is_data: T::Boolean).void }
+  def selective_patch(is_data: false)
+    patches = patchlist.select { |p| p.is_a?(DATAPatch) == is_data }
+    return if patches.empty?
+
+    patchtype = if is_data
+      "DATA"
+    else
+      "non-DATA"
+    end
+    ohai "Applying #{patchtype} patches"
+    patches.each(&:apply)
+  end
+
   # Yields |self,staging| with current working directory set to the uncompressed tarball
   # where staging is a {Mktemp} staging context.
-  def brew(fetch: true, keep_tmp: false, debug_symbols: false, interactive: false)
+  sig(:final) {
+    params(fetch: T::Boolean, keep_tmp: T::Boolean, debug_symbols: T::Boolean, interactive: T::Boolean,
+           _blk: T.proc.params(arg0: Formula, arg1: Mktemp).void).void
+  }
+  def brew(fetch: true, keep_tmp: false, debug_symbols: false, interactive: false, &_blk)
     @prefix_returns_versioned_prefix = true
     active_spec.fetch if fetch
     stage(interactive:, debug_symbols:) do |staging|
@@ -1779,6 +1831,8 @@ class Formula
   end
 
   # Standard parameters for cabal-v2 builds.
+  #
+  # @api public
   sig { returns(T::Array[String]) }
   def std_cabal_v2_args
     # cabal-install's dependency-resolution backtracking strategy can
@@ -1791,6 +1845,8 @@ class Formula
   end
 
   # Standard parameters for cargo builds.
+  #
+  # @api public
   sig {
     params(root: T.any(String, Pathname), path: T.any(String, Pathname)).returns(T::Array[String])
   }
@@ -1803,6 +1859,8 @@ class Formula
   # Setting `CMAKE_FIND_FRAMEWORK` to "LAST" tells CMake to search for our
   # libraries before trying to utilize Frameworks, many of which will be from
   # 3rd party installs.
+  #
+  # @api public
   sig {
     params(
       install_prefix: T.any(String, Pathname),
@@ -1824,6 +1882,8 @@ class Formula
   end
 
   # Standard parameters for configure builds.
+  #
+  # @api public
   sig {
     params(
       prefix: T.any(String, Pathname),
@@ -1836,23 +1896,33 @@ class Formula
   end
 
   # Standard parameters for Go builds.
+  #
+  # @api public
   sig {
-    params(output:  T.any(String, Pathname),
-           ldflags: T.nilable(T.any(String, T::Array[String]))).returns(T::Array[String])
+    params(
+      output:  T.any(String, Pathname),
+      ldflags: T.nilable(T.any(String, T::Array[String])),
+      gcflags: T.nilable(T.any(String, T::Array[String])),
+    ).returns(T::Array[String])
   }
-  def std_go_args(output: bin/name, ldflags: nil)
+  def std_go_args(output: bin/name, ldflags: nil, gcflags: nil)
     args = ["-trimpath", "-o=#{output}"]
     args += ["-ldflags=#{Array(ldflags).join(" ")}"] if ldflags
+    args += ["-gcflags=#{Array(gcflags).join(" ")}"] if gcflags
     args
   end
 
   # Standard parameters for meson builds.
+  #
+  # @api public
   sig { returns(T::Array[String]) }
   def std_meson_args
     ["--prefix=#{prefix}", "--libdir=#{lib}", "--buildtype=release", "--wrap-mode=nofallback"]
   end
 
   # Standard parameters for npm builds.
+  #
+  # @api public
   sig { params(prefix: T.any(String, Pathname, FalseClass)).returns(T::Array[String]) }
   def std_npm_args(prefix: libexec)
     require "language/node"
@@ -1863,6 +1933,8 @@ class Formula
   end
 
   # Standard parameters for pip builds.
+  #
+  # @api public
   sig {
     params(prefix:          T.any(String, Pathname, FalseClass),
            build_isolation: T::Boolean).returns(T::Array[String])
@@ -1872,6 +1944,26 @@ class Formula
     args << "--prefix=#{prefix}" if prefix
     args << "--no-build-isolation" unless build_isolation
     args
+  end
+
+  # Standard parameters for zig builds.
+  #
+  # @api public
+  sig {
+    params(prefix:       T.any(String, Pathname),
+           release_mode: Symbol).returns(T::Array[String])
+  }
+  def std_zig_args(prefix: self.prefix, release_mode: :fast)
+    raise ArgumentError, "Invalid Zig release mode: #{release_mode}" if [:safe, :fast, :small].exclude?(release_mode)
+
+    release_mode_downcased = release_mode.to_s.downcase
+    release_mode_capitalized = release_mode.to_s.capitalize
+    [
+      "--prefix", prefix.to_s,
+      "--release=#{release_mode_downcased}",
+      "-Doptimize=Release#{release_mode_capitalized}",
+      "--summary", "all"
+    ]
   end
 
   # Shared library names according to platform conventions.
@@ -1889,6 +1981,8 @@ class Formula
   # shared_library("foo", "*") #=> foo.2.dylib, foo.1.dylib, foo.dylib
   # shared_library("*")        #=> foo.dylib, bar.dylib
   # ```
+  #
+  # @api public
   sig { params(name: String, version: T.nilable(T.any(String, Integer))).returns(String) }
   def shared_library(name, version = nil)
     return "*.dylib" if name == "*" && (version.blank? || version == "*")
@@ -1913,6 +2007,8 @@ class Formula
   # rpath(target: frameworks) #=> "@loader_path/../Frameworks"
   # rpath(source: libexec/"bin") #=> "@loader_path/../../lib"
   # ```
+  #
+  # @api public
   sig { params(source: Pathname, target: Pathname).returns(String) }
   def rpath(source: bin, target: lib)
     unless target.to_s.start_with?(HOMEBREW_PREFIX)
@@ -1922,6 +2018,9 @@ class Formula
     "#{loader_path}/#{target.relative_path_from(source)}"
   end
 
+  # Linker variable for the directory containing the program or shared object.
+  #
+  # @api public
   sig { returns(String) }
   def loader_path
     "@loader_path"
@@ -1943,6 +2042,10 @@ class Formula
   #
   # If called with no parameters, does this with all compatible
   # universal binaries in a {Formula}'s {Keg}.
+  #
+  # Raises an error if no universal binaries are found to deuniversalize.
+  #
+  # @api public
   sig { params(targets: T.nilable(T.any(Pathname, String))).void }
   def deuniversalize_machos(*targets)
     if targets.none?
@@ -1950,6 +2053,8 @@ class Formula
         file.arch == :universal && file.archs.include?(Hardware::CPU.arch)
       end
     end
+
+    raise "No universal binaries found to deuniversalize" if targets.blank?
 
     targets&.each do |target|
       extract_macho_slice_from(Pathname(target), Hardware::CPU.arch)
@@ -2038,6 +2143,15 @@ class Formula
   #                                                     bin/"foo")
   # ```
   #
+  # Using predefined `shell_parameter_format :clap`.
+  #
+  # ```ruby
+  # generate_completions_from_executable(bin/"foo", shell_parameter_format: :clap, shells: [:zsh])
+  #
+  # # translates to
+  # (zsh_completion/"_foo").write Utils.safe_popen_read({ "SHELL" => "zsh", "COMPLETE" => "zsh" }, bin/"foo")
+  # ```
+  #
   # Using custom `shell_parameter_format`.
   #
   # ```ruby
@@ -2049,26 +2163,33 @@ class Formula
   #                                                     "completions", "--selected-shell=bash")
   # ```
   #
-  # @param commands [Pathname, String]
+  # @api public
+  # @param commands
   #   the path to the executable and any passed subcommand(s) to use for generating the completion scripts.
-  # @param base_name [String]
-  #   the base name of the generated completion script. Defaults to the formula name.
-  # @param shells [Array<Symbol>]
+  # @param base_name
+  #   the base name of the generated completion script. Defaults to the name of the executable if installed
+  #   within formula's bin or sbin. Otherwise falls back to the formula name.
+  # @param shells
   #   the shells to generate completion scripts for. Defaults to `[:bash, :zsh, :fish]`.
-  # @param shell_parameter_format [String, Symbol]
+  # @param shell_parameter_format
   #   specify how `shells` should each be passed to the `executable`. Takes either a String representing a
-  #   prefix, or one of `[:flag, :arg, :none, :click]`. Defaults to plainly passing the shell.
+  #   prefix, or one of `[:flag, :arg, :none, :click, :clap]`. Defaults to plainly passing the shell.
   sig {
     params(
-      commands: T.any(Pathname, String),
-      base_name: String, shells: T::Array[Symbol],
-      shell_parameter_format: T.nilable(T.any(Symbol, String))
+      commands:               T.any(Pathname, String),
+      base_name:              T.nilable(String),
+      shells:                 T::Array[Symbol],
+      shell_parameter_format: T.nilable(T.any(Symbol, String)),
     ).void
   }
   def generate_completions_from_executable(*commands,
-                                           base_name: name,
+                                           base_name: nil,
                                            shells: [:bash, :zsh, :fish],
                                            shell_parameter_format: nil)
+    executable = commands.first.to_s
+    base_name ||= File.basename(executable) if executable.start_with?(bin.to_s, sbin.to_s)
+    base_name ||= name
+
     completion_script_path_map = {
       bash: bash_completion/base_name,
       zsh:  zsh_completion/"_#{base_name}",
@@ -2087,8 +2208,11 @@ class Formula
       elsif shell_parameter_format == :none
         nil
       elsif shell_parameter_format == :click
-        prog_name = File.basename(commands.first.to_s).upcase.tr("-", "_")
+        prog_name = File.basename(executable).upcase.tr("-", "_")
         popen_read_env["_#{prog_name}_COMPLETE"] = "#{shell}_source"
+        nil
+      elsif shell_parameter_format == :clap
+        popen_read_env["COMPLETE"] = shell.to_s
         nil
       else
         "#{shell_parameter_format}#{shell}"
@@ -2299,6 +2423,7 @@ class Formula
 
   # Returns the {PkgVersion} for this formula if it is installed.
   # If not, return `nil`.
+  sig { returns(T.nilable(PkgVersion)) }
   def any_installed_version
     any_installed_keg&.version
   end
@@ -2439,9 +2564,11 @@ class Formula
       "deprecated"               => deprecated?,
       "deprecation_date"         => deprecation_date,
       "deprecation_reason"       => deprecation_reason,
+      "deprecation_replacement"  => deprecation_replacement,
       "disabled"                 => disabled?,
       "disable_date"             => disable_date,
       "disable_reason"           => disable_reason,
+      "disable_replacement"      => disable_replacement,
       "post_install_defined"     => post_install_defined?,
       "service"                  => (service.to_hash if service?),
       "tap_git_head"             => tap_git_head,
@@ -2480,83 +2607,8 @@ class Formula
     hsh
   end
 
-  def to_internal_api_hash
-    api_hash = {
-      "desc"                 => desc,
-      "license"              => SPDX.license_expression_to_string(license),
-      "homepage"             => homepage,
-      "urls"                 => urls_hash.transform_values(&:compact),
-      "post_install_defined" => post_install_defined?,
-      "ruby_source_path"     => ruby_source_path,
-      "ruby_source_sha256"   => ruby_source_checksum&.hexdigest,
-    }
-
-    # Exclude default values.
-    api_hash["revision"] = revision unless revision.zero?
-    api_hash["version_scheme"] = version_scheme unless version_scheme.zero?
-
-    # Optional values.
-    api_hash["keg_only_reason"] = keg_only_reason.to_hash if keg_only_reason
-    api_hash["pour_bottle_only_if"] = self.class.pour_bottle_only_if.to_s if self.class.pour_bottle_only_if
-    api_hash["link_overwrite"] = self.class.link_overwrite_paths.to_a if self.class.link_overwrite_paths.present?
-    api_hash["caveats"] = caveats_with_placeholders if caveats
-    api_hash["service"] = service.to_hash if service?
-
-    if stable
-      api_hash["version"] = stable&.version&.to_s
-      api_hash["bottle"] = bottle_hash(compact_for_api: true) if bottle_defined?
-    end
-
-    if (versioned_formulae_list = versioned_formulae.presence)
-      # Could we just use `versioned_formulae_names` here instead?
-      api_hash["versioned_formulae"] = versioned_formulae_list.map(&:name)
-    end
-
-    if (dependencies = internal_dependencies_hash(:stable).presence)
-      api_hash["dependencies"] = dependencies
-    end
-
-    if (head_dependencies = internal_dependencies_hash(:head).presence)
-      api_hash["head_dependencies"] = head_dependencies
-    end
-
-    if (requirements_array = serialized_requirements.presence)
-      api_hash["requirements"] = requirements_array
-    end
-
-    if conflicts.present?
-      api_hash["conflicts_with"] = conflicts.map(&:name)
-      api_hash["conflicts_with_reasons"] = conflicts.map(&:reason)
-    end
-
-    if deprecation_date
-      api_hash["deprecation_date"] = deprecation_date
-      api_hash["deprecation_reason"] = deprecation_reason
-    end
-
-    if disable_date
-      api_hash["disable_date"] = disable_date
-      api_hash["disable_reason"] = disable_reason
-    end
-
-    api_hash
-  end
-
-  def to_hash_with_variations(hash_method: :to_hash)
-    if loaded_from_api? && hash_method == :to_internal_api_hash
-      raise ArgumentError, "API Hash must be generated from Ruby source files"
-    end
-
-    namespace_prefix = case hash_method
-    when :to_hash
-      "Variations"
-    when :to_internal_api_hash
-      "APIVariations"
-    else
-      raise ArgumentError, "Unknown hash method #{hash_method.inspect}"
-    end
-
-    hash = public_send(hash_method)
+  def to_hash_with_variations
+    hash = to_hash
 
     # Take from API, merging in local install status.
     if loaded_from_api? && !Homebrew::EnvConfig.no_install_from_api?
@@ -2575,13 +2627,13 @@ class Formula
         next unless bottle_tag.valid_combination?
 
         Homebrew::SimulateSystem.with(os:, arch:) do
-          variations_namespace = Formulary.class_s("#{namespace_prefix}#{bottle_tag.to_sym.capitalize}")
+          variations_namespace = Formulary.class_s("Variations#{bottle_tag.to_sym.capitalize}")
           variations_formula_class = Formulary.load_formula(name, path, formula_contents, variations_namespace,
                                                             flags: self.class.build_flags, ignore_errors: true)
           variations_formula = variations_formula_class.new(name, path, :stable,
                                                             alias_path:, force_bottle:)
 
-          variations_formula.public_send(hash_method).each do |key, value|
+          variations_formula.to_hash.each do |key, value|
             next if value.to_s == hash[key].to_s
 
             variations[bottle_tag.to_sym] ||= {}
@@ -2591,12 +2643,12 @@ class Formula
       end
     end
 
-    hash["variations"] = variations if hash_method != :to_internal_api_hash || variations.present?
+    hash["variations"] = variations
     hash
   end
 
   # Returns the bottle information for a formula.
-  def bottle_hash(compact_for_api: false)
+  def bottle_hash
     hash = {}
     stable_spec = stable
     return hash unless stable_spec
@@ -2604,8 +2656,8 @@ class Formula
 
     bottle_spec = stable_spec.bottle_specification
 
-    hash["rebuild"] = bottle_spec.rebuild if !compact_for_api || !bottle_spec.rebuild.zero?
-    hash["root_url"] = bottle_spec.root_url unless compact_for_api
+    hash["rebuild"] = bottle_spec.rebuild
+    hash["root_url"] = bottle_spec.root_url
     hash["files"] = {}
 
     bottle_spec.collector.each_tag do |tag|
@@ -2616,11 +2668,9 @@ class Formula
 
       file_hash = {}
       file_hash["cellar"] = os_cellar
-      unless compact_for_api
-        filename = Bottle::Filename.create(self, tag, bottle_spec.rebuild)
-        path, = Utils::Bottles.path_resolved_basename(bottle_spec.root_url, name, checksum, filename)
-        file_hash["url"] = "#{bottle_spec.root_url}/#{path}"
-      end
+      filename = Bottle::Filename.create(self, tag, bottle_spec.rebuild)
+      path, = Utils::Bottles.path_resolved_basename(bottle_spec.root_url, name, checksum, filename)
+      file_hash["url"] = "#{bottle_spec.root_url}/#{path}"
       file_hash["sha256"] = checksum
 
       hash["files"][tag.to_sym] = file_hash
@@ -2813,6 +2863,7 @@ class Formula
             test
           end
         end
+      # Handle all possible exceptions running formula tests.
       rescue Exception # rubocop:disable Lint/RescueException
         staging.retain! if debug?
         raise
@@ -2825,7 +2876,7 @@ class Formula
 
   sig { returns(T::Boolean) }
   def test_defined?
-    false
+    method(:test).owner != Formula
   end
 
   def test; end
@@ -2881,17 +2932,18 @@ class Formula
       after:            T.nilable(T.any(Pathname, String, Symbol)),
       old_audit_result: T.nilable(T::Boolean),
       audit_result:     T::Boolean,
+      global:           T::Boolean,
       block:            T.nilable(T.proc.params(s: StringInreplaceExtension).void),
     ).void
   }
-  def inreplace(paths, before = nil, after = nil, old_audit_result = nil, audit_result: true, &block)
+  def inreplace(paths, before = nil, after = nil, old_audit_result = nil, audit_result: true, global: true, &block)
     # NOTE: must check for `#nil?` and not `#blank?`, or else `old_audit_result = false` will not call `odeprecated`.
     unless old_audit_result.nil?
       odeprecated "inreplace(paths, before, after, #{old_audit_result})",
                   "inreplace(paths, before, after, audit_result: #{old_audit_result})"
       audit_result = old_audit_result
     end
-    Utils::Inreplace.inreplace(paths, before, after, audit_result:, &block)
+    Utils::Inreplace.inreplace(paths, before, after, audit_result:, global:, &block)
   rescue Utils::Inreplace::Error => e
     onoe e.to_s
     raise BuildError.new(self, "inreplace", Array(paths), {})
@@ -2974,6 +3026,8 @@ class Formula
   # ```ruby
   # system "make", "install"
   # ```
+  #
+  # @api public
   sig { params(cmd: T.any(String, Pathname), args: T.any(String, Integer, Pathname, Symbol)).void }
   def system(cmd, *args)
     verbose_using_dots = Homebrew::EnvConfig.verbose_using_dots?
@@ -2995,6 +3049,8 @@ class Formula
         pretty_args -= std_go_args
       when "meson"
         pretty_args -= std_meson_args
+      when "zig"
+        pretty_args -= std_zig_args
       when %r{(^|/)(pip|python)(?:[23](?:\.\d{1,2})?)?$}
         pretty_args -= std_pip_args
       end
@@ -3080,6 +3136,7 @@ class Formula
     end
   end
 
+  sig { params(quiet: T::Boolean).returns(T::Array[Keg]) }
   def eligible_kegs_for_cleanup(quiet: false)
     eligible_for_cleanup = []
     if latest_version_installed?
@@ -3107,6 +3164,9 @@ class Formula
             opoo "Skipping (old) #{keg} due to it being linked" unless quiet
           elsif pinned? && keg == Keg.new(@pin.path.resolved_path)
             opoo "Skipping (old) #{keg} due to it being pinned" unless quiet
+          elsif (keepme = keg/".keepme") && keepme.exist? && keepme.readable? &&
+                (keepme_refs = keepme.readlines.map(&:strip).select { |ref| Pathname(ref).exist? }.presence)
+            opoo "Skipping #{keg} as it needed by #{keepme_refs.join(", ")}" unless quiet
           else
             eligible_for_cleanup << keg
           end
@@ -3282,17 +3342,6 @@ class Formula
         @network_access_allowed = SUPPORTED_NETWORK_ACCESS_PHASES.to_h do |phase|
           [phase, DEFAULT_NETWORK_ACCESS_ALLOWED]
         end
-      end
-    end
-
-    def method_added(method)
-      super
-
-      case method
-      when :brew
-        raise "You cannot override Formula#brew in class #{name}"
-      when :test
-        define_method(:test_defined?) { true }
       end
     end
 
@@ -3484,8 +3533,19 @@ class Formula
     # It returns `true` when a `livecheck` block is present in the {Formula}
     # and `false` otherwise.
     sig { returns(T::Boolean) }
+    def livecheck_defined?
+      @livecheck_defined == true
+    end
+
+    # Checks whether a `livecheck` specification is defined or not. This is a
+    # legacy alias for `#livecheck_defined?`.
+    #
+    # It returns `true` when a `livecheck` block is present in the {Formula}
+    # and `false` otherwise.
+    sig { returns(T::Boolean) }
     def livecheckable?
-      @livecheckable == true
+      # odeprecated "`livecheckable?`", "`livecheck_defined?`"
+      @livecheck_defined == true
     end
 
     # Checks whether a service specification is defined or not.
@@ -4110,7 +4170,7 @@ class Formula
     end
 
     # {Livecheck} can be used to check for newer versions of the software.
-    # This method evaluates the DSL specified in the livecheck block of the
+    # This method evaluates the DSL specified in the `livecheck` block of the
     # {Formula} (if it exists) and sets the instance variables of a {Livecheck}
     # object accordingly. This is used by `brew livecheck` to check for newer
     # versions of the software.
@@ -4130,7 +4190,7 @@ class Formula
     def livecheck(&block)
       return @livecheck unless block
 
-      @livecheckable = true
+      @livecheck_defined = true
       @livecheck.instance_eval(&block)
     end
 
@@ -4194,8 +4254,10 @@ class Formula
           on_macos do
             T.bind(self, PourBottleCheck)
             reason(+<<~EOS)
-              The bottle needs the Apple Command Line Tools to be installed.
-                You can install them, if desired, with:
+              The bottle needs the Xcode Command Line Tools to be installed at /Library/Developer/CommandLineTools.
+              Development tools provided by Xcode.app are not sufficient.
+
+              You can install the Xcode Command Line Tools, if desired, with:
                   xcode-select --install
             EOS
             satisfy { MacOS::CLT.installed? }
@@ -4230,14 +4292,19 @@ class Formula
     # deprecate! date: "2020-08-27", because: "has been replaced by foo"
     # ```
     #
+    # ```ruby
+    # deprecate! date: "2020-08-27", because: "has been replaced by foo", replacement: "foo"
+    # ```
+    #
     # @see https://docs.brew.sh/Deprecating-Disabling-and-Removing-Formulae
     # @see DeprecateDisable::FORMULA_DEPRECATE_DISABLE_REASONS
     # @api public
-    def deprecate!(date:, because:)
+    def deprecate!(date:, because:, replacement: nil)
       @deprecation_date = Date.parse(date)
       return if @deprecation_date > Date.today
 
       @deprecation_reason = because
+      @deprecation_replacement = replacement
       @deprecated = true
     end
 
@@ -4263,6 +4330,13 @@ class Formula
     # @see .deprecate!
     attr_reader :deprecation_reason
 
+    # The replacement for a deprecated {Formula}.
+    #
+    # @return [nil] if no replacement was provided or the formula is not deprecated.
+    # @return [String]
+    # @see .deprecate!
+    attr_reader :deprecation_replacement
+
     # Disables a {Formula} (on the given date) so it cannot be
     # installed. If the date has not yet passed the formula
     # will be deprecated instead of disabled.
@@ -4277,19 +4351,25 @@ class Formula
     # disable! date: "2020-08-27", because: "has been replaced by foo"
     # ```
     #
+    # ```ruby
+    # disable! date: "2020-08-27", because: "has been replaced by foo", replacement: "foo"
+    # ```
+    #
     # @see https://docs.brew.sh/Deprecating-Disabling-and-Removing-Formulae
     # @see DeprecateDisable::FORMULA_DEPRECATE_DISABLE_REASONS
     # @api public
-    def disable!(date:, because:)
+    def disable!(date:, because:, replacement: nil)
       @disable_date = Date.parse(date)
 
       if @disable_date > Date.today
         @deprecation_reason = because
+        @deprecation_replacement = replacement
         @deprecated = true
         return
       end
 
       @disable_reason = because
+      @disable_replacement = replacement
       @disabled = true
     end
 
@@ -4315,6 +4395,13 @@ class Formula
     # @return [String, Symbol]
     # @see .disable!
     attr_reader :disable_reason
+
+    # The replacement for a disabled {Formula}.
+    # Returns `nil` if no reason was provided or the formula is not disabled.
+    #
+    # @return [String]
+    # @see .disable!
+    attr_reader :disable_replacement
 
     # Permit overwriting certain files while linking.
     #

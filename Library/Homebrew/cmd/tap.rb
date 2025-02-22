@@ -38,11 +38,12 @@ module Homebrew
         switch "--custom-remote",
                description: "Install or change a tap with a custom remote. Useful for mirrors."
         switch "--repair",
-               description: "Migrate tapped formulae from symlink-based to directory-based structure."
+               description: "Add missing symlinks to tap manpages and shell completions. Correct git remote " \
+                            "refs for any taps where upstream HEAD branch has been renamed."
         switch "--eval-all",
                description: "Evaluate all the formulae, casks and aliases in the new tap to check validity. " \
-                            "Implied if `HOMEBREW_EVAL_ALL` is set."
-        switch "--force",
+                            "Implied if `$HOMEBREW_EVAL_ALL` is set."
+        switch "-f", "--force",
                description: "Force install core taps even under API mode."
 
         named_args :tap, max: 2
@@ -58,7 +59,7 @@ module Homebrew
         elsif args.no_named?
           puts Tap.installed.sort_by(&:name)
         else
-          tap = Tap.fetch(args.named.first)
+          tap = Tap.fetch(args.named.fetch(0))
           begin
             tap.install clone_target:  args.named.second,
                         custom_remote: args.custom_remote?,

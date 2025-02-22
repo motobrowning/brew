@@ -20,7 +20,7 @@ module OS
 
         success = T.let(true, T::Boolean)
         tap.cask_files.each do |file|
-          cask = Cask::CaskLoader.load(file)
+          cask = ::Cask::CaskLoader.load(file)
 
           # Fine to have missing URLs for unsupported macOS
           macos_req = cask.depends_on.macos
@@ -31,6 +31,7 @@ module OS
           raise "Missing URL" if cask.url.nil?
         rescue Interrupt
           raise
+        # Handle all possible exceptions reading Casks.
         rescue Exception => e # rubocop:disable Lint/RescueException
           os_and_arch = "macOS #{current_macos_version} on #{arch}"
           onoe "Invalid cask (#{os_and_arch}): #{file}"

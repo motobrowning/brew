@@ -58,8 +58,10 @@ module Homebrew
         end
 
         # Parses JSON text and identifies versions using a `strategy` block.
-        # If a regex is provided, it will be passed as the second argument to
-        # the  `strategy` block (after the parsed JSON data).
+        # If the block has two parameters, the parsed JSON data will be used as
+        # the first argument and the regex (if any) will be the second.
+        # Otherwise, only the parsed JSON data will be passed to the block.
+        #
         # @param content [String] the JSON text to parse and check
         # @param regex [Regexp, nil] a regex used for matching versions in the
         #   content
@@ -77,10 +79,8 @@ module Homebrew
           json = parse_json(content)
           return [] if json.blank?
 
-          block_return_value = if regex.present?
+          block_return_value = if block.arity == 2
             yield(json, regex)
-          elsif block.arity == 2
-            raise "Two arguments found in `strategy` block but no regex provided."
           else
             yield(json)
           end
@@ -102,11 +102,11 @@ module Homebrew
             regex:            T.nilable(Regexp),
             provided_content: T.nilable(String),
             homebrew_curl:    T::Boolean,
-            _unused:          T.untyped,
+            unused:           T.untyped,
             block:            T.nilable(Proc),
           ).returns(T::Hash[Symbol, T.untyped])
         }
-        def self.find_versions(url:, regex: nil, provided_content: nil, homebrew_curl: false, **_unused, &block)
+        def self.find_versions(url:, regex: nil, provided_content: nil, homebrew_curl: false, **unused, &block)
           raise ArgumentError, "#{Utils.demodulize(T.must(name))} requires a `strategy` block" if block.blank?
 
           match_data = { matches: {}, regex:, url: }
@@ -116,7 +116,13 @@ module Homebrew
             match_data[:cached] = true
             provided_content
           else
-            match_data.merge!(Strategy.page_content(url, homebrew_curl:))
+            match_data.merge!(
+              Strategy.page_content(
+                url,
+                url_options:   unused.fetch(:url_options, {}),
+                homebrew_curl:,
+              ),
+            )
             match_data[:content]
           end
           return match_data if content.blank?
