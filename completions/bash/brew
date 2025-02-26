@@ -95,21 +95,23 @@ __brew_complete_tapped() {
 
 __brew_complete_commands() {
   # Auto-complete Homebrew commands
-  # Do NOT auto-complete "*instal" aliases for "*install" commands
 
   local cur="${COMP_WORDS[COMP_CWORD]}"
   local cmds
+  local -a cmd_aliases
 
   if [[ -n ${__HOMEBREW_COMMANDS} ]]
   then
     cmds=${__HOMEBREW_COMMANDS}
   elif [[ -n ${HOMEBREW_CACHE:-} && -f ${HOMEBREW_CACHE}/all_commands_list.txt ]]
   then
-    cmds="$(< "${HOMEBREW_CACHE}/all_commands_list.txt" \grep -v instal$)"
+    cmds="$(< "${HOMEBREW_CACHE}/all_commands_list.txt")"
   elif [[ -n ${HOMEBREW_REPOSITORY:-} && -f ${HOMEBREW_REPOSITORY}/completions/internal_commands_list.txt ]]
   then
-    cmds="$(< "${HOMEBREW_REPOSITORY}/completions/internal_commands_list.txt" \grep -v instal$)"
+    cmds="$(< "${HOMEBREW_REPOSITORY}/completions/internal_commands_list.txt")"
   fi
+  while read -r alias; do cmd_aliases+=("${alias}"); done < <(compgen -W "$(__brew_list_aliases)")
+  [[ -n ${cmd_aliases[*]+"${cmd_aliases[*]}"} ]] && cmds+=" ${cmd_aliases[*]} alias unalias"
   while read -r line; do COMPREPLY+=("${line}"); done < <(compgen -W "${cmds}" -- "${cur}")
   export __HOMEBREW_COMMANDS=${cmds}
 }
@@ -117,6 +119,26 @@ __brew_complete_commands() {
 # compopt is only available in newer versions of bash
 __brew_complete_files() {
   command -v compopt &> /dev/null && compopt -o default
+}
+
+# https://github.com/Homebrew/homebrew-aliases
+__brew_list_aliases() {
+  local aliases_dir="${HOME}/.brew-aliases"
+  local pattern="^# alias: brew ([[:alnum:]-]+)$"
+  local -a aliases
+
+  [[ ! -d ${aliases_dir} ]] && return
+
+  for file in "${aliases_dir}"/*; do
+    [[ ! -f ${file} ]] && continue
+    while read -r line; do
+      if [[ ${line} =~ ${pattern} ]]; then
+        aliases+=("${BASH_REMATCH[1]}")
+        break
+      fi
+    done < "${file}"
+  done
+  [[ -n ${aliases[*]+"${aliases[*]}"} ]] && echo "${aliases[@]}"
 }
 
 _brew___cache() {
@@ -357,6 +379,23 @@ _brew_abv() {
   esac
   __brew_complete_formulae
   __brew_complete_casks
+}
+
+_brew_alias() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  case "${cur}" in
+    -*)
+      __brewcomp "
+      --debug
+      --edit
+      --help
+      --quiet
+      --verbose
+      "
+      return
+      ;;
+    *) ;;
+  esac
 }
 
 _brew_analytics() {
@@ -777,6 +816,7 @@ _brew_create() {
       --set-version
       --tap
       --verbose
+      --zig
       "
       return
       ;;
@@ -821,6 +861,7 @@ _brew_deps() {
       --graph
       --help
       --include-build
+      --include-implicit
       --include-optional
       --include-requirements
       --include-test
@@ -1093,7 +1134,55 @@ _brew_formula() {
   __brew_complete_formulae
 }
 
+_brew_formula_analytics() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  case "${cur}" in
+    -*)
+      __brewcomp "
+      --all-core-formulae-json
+      --brew-command-run
+      --brew-command-run-options
+      --brew-test-bot-test
+      --build-error
+      --cask-install
+      --days-ago
+      --debug
+      --help
+      --homebrew-devcmdrun-developer
+      --homebrew-os-arch-ci
+      --homebrew-prefixes
+      --homebrew-versions
+      --install
+      --install-on-request
+      --json
+      --os-version
+      --quiet
+      --setup
+      --verbose
+      "
+      return
+      ;;
+    *) ;;
+  esac
+}
+
 _brew_formulae() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  case "${cur}" in
+    -*)
+      __brewcomp "
+      --debug
+      --help
+      --quiet
+      --verbose
+      "
+      return
+      ;;
+    *) ;;
+  esac
+}
+
+_brew_generate_analytics_api() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   case "${cur}" in
     -*)
@@ -1124,6 +1213,28 @@ _brew_generate_cask_api() {
       ;;
     *) ;;
   esac
+}
+
+_brew_generate_cask_ci_matrix() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  case "${cur}" in
+    -*)
+      __brewcomp "
+      --cask
+      --debug
+      --help
+      --new
+      --quiet
+      --skip-install
+      --syntax-only
+      --url
+      --verbose
+      "
+      return
+      ;;
+    *) ;;
+  esac
+  __brew_complete_casks
 }
 
 _brew_generate_formula_api() {
@@ -1297,6 +1408,7 @@ _brew_instal() {
       --screen-saverdir
       --servicedir
       --skip-cask-deps
+      --skip-link
       --skip-post-install
       --verbose
       --vst-plugindir
@@ -1360,6 +1472,7 @@ _brew_install() {
       --screen-saverdir
       --servicedir
       --skip-cask-deps
+      --skip-link
       --skip-post-install
       --verbose
       --vst-plugindir
@@ -1415,6 +1528,7 @@ _brew_lc() {
   case "${cur}" in
     -*)
       __brewcomp "
+      --autobump
       --cask
       --debug
       --eval-all
@@ -1535,6 +1649,7 @@ _brew_livecheck() {
   case "${cur}" in
     -*)
       __brewcomp "
+      --autobump
       --cask
       --debug
       --eval-all
@@ -2424,6 +2539,22 @@ _brew_typecheck() {
   __brew_complete_tapped
 }
 
+_brew_unalias() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  case "${cur}" in
+    -*)
+      __brewcomp "
+      --debug
+      --help
+      --quiet
+      --verbose
+      "
+      return
+      ;;
+    *) ;;
+  esac
+}
+
 _brew_unbottled() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   case "${cur}" in
@@ -2645,6 +2776,7 @@ _brew_update_python_resources() {
       --exclude-packages
       --extra-packages
       --help
+      --ignore-errors
       --ignore-non-pypi-packages
       --install-dependencies
       --package-name
@@ -2797,6 +2929,7 @@ _brew_uses() {
       --formula
       --help
       --include-build
+      --include-implicit
       --include-optional
       --include-test
       --installed
@@ -2847,6 +2980,29 @@ _brew_vendor_install() {
   esac
 }
 
+_brew_verify() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  case "${cur}" in
+    -*)
+      __brewcomp "
+      --arch
+      --bottle-tag
+      --debug
+      --deps
+      --force
+      --help
+      --json
+      --os
+      --quiet
+      --verbose
+      "
+      return
+      ;;
+    *) ;;
+  esac
+  __brew_complete_formulae
+}
+
 _brew() {
   local i=1 cmd
 
@@ -2889,6 +3045,7 @@ _brew() {
     -S) _brew__s ;;
     -v) _brew__v ;;
     abv) _brew_abv ;;
+    alias) _brew_alias ;;
     analytics) _brew_analytics ;;
     audit) _brew_audit ;;
     autoremove) _brew_autoremove ;;
@@ -2921,8 +3078,11 @@ _brew() {
     extract) _brew_extract ;;
     fetch) _brew_fetch ;;
     formula) _brew_formula ;;
+    formula-analytics) _brew_formula_analytics ;;
     formulae) _brew_formulae ;;
+    generate-analytics-api) _brew_generate_analytics_api ;;
     generate-cask-api) _brew_generate_cask_api ;;
+    generate-cask-ci-matrix) _brew_generate_cask_ci_matrix ;;
     generate-formula-api) _brew_generate_formula_api ;;
     generate-man-completions) _brew_generate_man_completions ;;
     gist-logs) _brew_gist_logs ;;
@@ -2978,6 +3138,7 @@ _brew() {
     test) _brew_test ;;
     tests) _brew_tests ;;
     typecheck) _brew_typecheck ;;
+    unalias) _brew_unalias ;;
     unbottled) _brew_unbottled ;;
     uninstal) _brew_uninstal ;;
     uninstall) _brew_uninstall ;;
@@ -2998,6 +3159,7 @@ _brew() {
     uses) _brew_uses ;;
     vendor-gems) _brew_vendor_gems ;;
     vendor-install) _brew_vendor_install ;;
+    verify) _brew_verify ;;
     *) ;;
   esac
 }

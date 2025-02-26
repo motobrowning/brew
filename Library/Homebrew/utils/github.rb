@@ -480,9 +480,7 @@ module GitHub
     end
 
     # Only raise errors if we didn't get any sponsorships.
-    if sponsorships.blank? && errors.present?
-      raise API::Error, errors.map { |e| "#{e["type"]}: #{e["message"]}" }.join("\n")
-    end
+    raise API::Error, errors.map { |e| e["message"] }.join("\n") if sponsorships.blank? && errors.present?
 
     sponsorships.map do |sponsorship|
       sponsor = sponsorship["sponsorEntity"]
@@ -675,7 +673,11 @@ module GitHub
   end
 
   def self.get_pull_request_changed_files(tap_remote_repo, pull_request)
-    API.open_rest(url_to("repos", tap_remote_repo, "pulls", pull_request, "files"))
+    files = []
+    API.paginate_rest(url_to("repos", tap_remote_repo, "pulls", pull_request, "files")) do |result|
+      files.concat(result)
+    end
+    files
   end
 
   private_class_method def self.add_auth_token_to_url!(url)
@@ -756,6 +758,7 @@ module GitHub
 
         safe_system "git", "add", *changed_files
         safe_system "git", "checkout", "--no-track", "-b", branch, "#{remote}/#{remote_branch}" unless args.commit?
+        Utils::Git.set_name_email!
         safe_system "git", "commit", "--no-edit", "--verbose",
                     "--message=#{commit_message}",
                     "--", *changed_files
@@ -823,15 +826,15 @@ module GitHub
     return if Homebrew::EnvConfig.no_github_api?
 
     require "utils/curl"
-    output, _, status = Utils::Curl.curl_output(
+    result = Utils::Curl.curl_output(
       "--silent", "--head", "--location",
       "--header", "Accept: application/vnd.github.sha",
       url_to("repos", user, repo, "commits", ref).to_s
     )
 
-    return unless status.success?
+    return unless result.status.success?
 
-    commit = output[/^ETag: "(\h+)"/, 1]
+    commit = result.stdout[/^ETag: "(\h+)"/, 1]
     return if commit.blank?
 
     version.update_commit(commit)
@@ -842,14 +845,14 @@ module GitHub
     return false if Homebrew::EnvConfig.no_github_api?
 
     require "utils/curl"
-    output, _, status = Utils::Curl.curl_output(
+    result = Utils::Curl.curl_output(
       "--silent", "--head", "--location",
       "--header", "Accept: application/vnd.github.sha",
       url_to("repos", user, repo, "commits", commit).to_s
     )
 
-    return true unless status.success?
-    return true if output.blank?
+    return true unless result.status.success?
+    return true if (output = result.stdout).blank?
 
     output[/^Status: (200)/, 1] != "200"
   end
@@ -923,22 +926,27 @@ module GitHub
 
     homebrew_prs_count = 0
 
-    API.paginate_graphql(query) do |result|
-      data = result.fetch("viewer")
-      github_user = data.fetch("login")
+    begin
+      API.paginate_graphql(query) do |result|
+        data = result.fetch("viewer")
+        github_user = data.fetch("login")
 
-      # BrewTestBot can open as many PRs as it wants.
-      return false if github_user.casecmp?("brewtestbot")
+        # BrewTestBot can open as many PRs as it wants.
+        return false if github_user.casecmp?("brewtestbot")
 
-      pull_requests = data.fetch("pullRequests")
-      return false if pull_requests.fetch("totalCount") < MAXIMUM_OPEN_PRS
+        pull_requests = data.fetch("pullRequests")
+        return false if pull_requests.fetch("totalCount") < MAXIMUM_OPEN_PRS
 
-      homebrew_prs_count += pull_requests.fetch("nodes").count do |node|
-        node.dig("baseRepository", "owner", "login").casecmp?("homebrew")
+        homebrew_prs_count += pull_requests.fetch("nodes").count do |node|
+          node.dig("baseRepository", "owner", "login").casecmp?("homebrew")
+        end
+        return true if homebrew_prs_count >= MAXIMUM_OPEN_PRS
+
+        pull_requests.fetch("pageInfo")
       end
-      return true if homebrew_prs_count >= MAXIMUM_OPEN_PRS
-
-      pull_requests.fetch("pageInfo")
+    rescue => e
+      # Ignore SAML access errors (https://github.com/Homebrew/brew/issues/18610)
+      raise unless e.message.include?("Resource protected by organization SAML enforcement")
     end
 
     false
