@@ -29,7 +29,8 @@ module Superenv
     self["HOMEBREW_OPTIMIZATION_LEVEL"] = "O2"
     self["HOMEBREW_DYNAMIC_LINKER"] = determine_dynamic_linker_path
     self["HOMEBREW_RPATH_PATHS"] = determine_rpath_paths(@formula)
-    self["M4"] = "#{HOMEBREW_PREFIX}/opt/m4/bin/m4" if deps.any? { |d| d.name == "libtool" || d.name == "bison" }
+    m4_path_deps = ["libtool", "bison"]
+    self["M4"] = "#{HOMEBREW_PREFIX}/opt/m4/bin/m4" if deps.any? { m4_path_deps.include?(_1.name) }
   end
 
   def homebrew_extra_paths
@@ -45,8 +46,8 @@ module Superenv
 
   def homebrew_extra_isystem_paths
     paths = []
-    # Add paths for GCC headers when building against glibc@2.13 because we have to use -nostdinc.
-    if deps.any? { |d| d.name == "glibc@2.13" }
+    # Add paths for GCC headers when building against versioned glibc because we have to use -nostdinc.
+    if deps.any? { |d| d.name.match?(/^glibc@.+$/) }
       gcc_include_dir = Utils.safe_popen_read(cc, "--print-file-name=include").chomp
       gcc_include_fixed_dir = Utils.safe_popen_read(cc, "--print-file-name=include-fixed").chomp
       paths << gcc_include_dir << gcc_include_fixed_dir

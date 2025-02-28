@@ -4,7 +4,7 @@
 #####
 
 case "${MACHTYPE}" in
-  arm64-*)
+  arm64-* | aarch64-*)
     HOMEBREW_PROCESSOR="arm64"
     ;;
   x86_64-*)
@@ -127,12 +127,6 @@ case "$1" in
     homebrew-shellenv "$1"
     exit 0
     ;;
-  setup-ruby)
-    source "${HOMEBREW_LIBRARY}/Homebrew/cmd/setup-ruby.sh"
-    shift
-    homebrew-setup-ruby "$1"
-    exit 0
-    ;;
 esac
 
 source "${HOMEBREW_LIBRARY}/Homebrew/help.sh"
@@ -184,10 +178,65 @@ case "$@" in
     ;;
 esac
 
-#####
-##### Next, define all helper functions.
-#####
+# Include some helper functions.
 source "${HOMEBREW_LIBRARY}/Homebrew/utils/helpers.sh"
+
+# Require HOMEBREW_BREW_WRAPPER to be set if HOMEBREW_FORCE_BREW_WRAPPER is set
+# (and HOMEBREW_NO_FORCE_BREW_WRAPPER is not set) for all non-trivial commands
+# (i.e. not defined above this line e.g. formulae or --cellar).
+if [[ -z "${HOMEBREW_NO_FORCE_BREW_WRAPPER:-}" && -n "${HOMEBREW_FORCE_BREW_WRAPPER:-}" ]]
+then
+  HOMEBREW_FORCE_BREW_WRAPPER_WITHOUT_BREW="${HOMEBREW_FORCE_BREW_WRAPPER%/brew}"
+  if [[ -z "${HOMEBREW_BREW_WRAPPER:-}" ]]
+  then
+    odie <<EOS
+conflicting Homebrew wrapper configuration!
+HOMEBREW_FORCE_BREW_WRAPPER was set to ${HOMEBREW_FORCE_BREW_WRAPPER}
+but   HOMEBREW_BREW_WRAPPER was unset.
+
+$(bold "Ensure you run ${HOMEBREW_FORCE_BREW_WRAPPER} directly (not ${HOMEBREW_BREW_FILE})")!
+
+Manually setting your PATH can interfere with Homebrew wrappers.
+Ensure your shell configuration contains:
+  eval "\$(${HOMEBREW_BREW_FILE} shellenv)"
+or that ${HOMEBREW_FORCE_BREW_WRAPPER_WITHOUT_BREW} comes before ${HOMEBREW_PREFIX}/bin in your PATH:
+  export PATH="${HOMEBREW_FORCE_BREW_WRAPPER_WITHOUT_BREW}:${HOMEBREW_PREFIX}/bin:\$PATH"
+EOS
+  elif [[ "${HOMEBREW_FORCE_BREW_WRAPPER}" != "${HOMEBREW_BREW_WRAPPER}" ]]
+  then
+    odie <<EOS
+conflicting Homebrew wrapper configuration!
+HOMEBREW_FORCE_BREW_WRAPPER was set to ${HOMEBREW_FORCE_BREW_WRAPPER}
+but HOMEBREW_BREW_WRAPPER   was set to ${HOMEBREW_BREW_WRAPPER}
+
+$(bold "Ensure you run ${HOMEBREW_FORCE_BREW_WRAPPER} directly (not ${HOMEBREW_BREW_FILE})")!
+
+Manually setting your PATH can interfere with Homebrew wrappers.
+Ensure your shell configuration contains:
+  eval "\$(${HOMEBREW_BREW_FILE} shellenv)"
+or that ${HOMEBREW_FORCE_BREW_WRAPPER_WITHOUT_BREW} comes before ${HOMEBREW_PREFIX}/bin in your PATH:
+  export PATH="${HOMEBREW_FORCE_BREW_WRAPPER_WITHOUT_BREW}:${HOMEBREW_PREFIX}/bin:\$PATH"
+EOS
+  fi
+fi
+
+# commands that take a single or no arguments and need to write to HOMEBREW_PREFIX.
+# HOMEBREW_LIBRARY set by bin/brew
+# shellcheck disable=SC2154
+# doesn't need a default case as other arguments handled elsewhere.
+# shellcheck disable=SC2249
+case "$1" in
+  setup-ruby)
+    source "${HOMEBREW_LIBRARY}/Homebrew/cmd/setup-ruby.sh"
+    shift
+    homebrew-setup-ruby "$1"
+    exit 0
+    ;;
+esac
+
+#####
+##### Next, define all other helper functions.
+#####
 
 check-run-command-as-root() {
   [[ "${EUID}" == 0 || "${UID}" == 0 ]] || return

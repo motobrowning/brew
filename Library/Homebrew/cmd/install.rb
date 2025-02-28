@@ -20,13 +20,13 @@ module Homebrew
           Install a <formula> or <cask>. Additional options specific to a <formula> may be
           appended to the command.
 
-          Unless `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set, `brew upgrade` or `brew reinstall` will be run for
+          Unless `$HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set, `brew upgrade` or `brew reinstall` will be run for
           outdated dependents and dependents with broken linkage, respectively.
 
-          Unless `HOMEBREW_NO_INSTALL_CLEANUP` is set, `brew cleanup` will then be run for
+          Unless `$HOMEBREW_NO_INSTALL_CLEANUP` is set, `brew cleanup` will then be run for
           the installed formulae or, every 30 days, for all formulae.
 
-          Unless `HOMEBREW_NO_INSTALL_UPGRADE` is set, `brew install` <formula> will upgrade <formula> if it
+          Unless `$HOMEBREW_NO_INSTALL_UPGRADE` is set, `brew install` <formula> will upgrade <formula> if it
           is already installed but outdated.
         EOS
         switch "-d", "--debug",
@@ -100,6 +100,9 @@ module Homebrew
           }],
           [:switch, "--skip-post-install", {
             description: "Install but skip any post-install steps.",
+          }],
+          [:switch, "--skip-link", {
+            description: "Install but skip linking the keg into the prefix.",
           }],
           [:flag, "--bottle-arch=", {
             depends_on:  "--build-bottle",
@@ -289,6 +292,7 @@ module Homebrew
             only_dependencies: args.only_dependencies?,
             force:             args.force?,
             quiet:             args.quiet?,
+            skip_link:         args.skip_link?,
             overwrite:         args.overwrite?,
           )
         end
@@ -319,6 +323,7 @@ module Homebrew
           verbose:                    args.verbose?,
           dry_run:                    args.dry_run?,
           skip_post_install:          args.skip_post_install?,
+          skip_link:                  args.skip_link?,
         )
 
         Upgrade.check_installed_dependents(

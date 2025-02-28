@@ -4,6 +4,11 @@
 raise "HOMEBREW_BREW_FILE was not exported! Please call bin/brew directly!" unless ENV["HOMEBREW_BREW_FILE"]
 
 # Path to `bin/brew` main executable in `HOMEBREW_PREFIX`
+# Used for e.g. permissions checks.
+HOMEBREW_ORIGINAL_BREW_FILE = Pathname(ENV.fetch("HOMEBREW_ORIGINAL_BREW_FILE")).freeze
+
+# Path to the executable that should be used to run `brew`.
+# This may be HOMEBREW_ORIGINAL_BREW_FILE or HOMEBREW_BREW_WRAPPER.
 HOMEBREW_BREW_FILE = Pathname(ENV.fetch("HOMEBREW_BREW_FILE")).freeze
 
 # Where we link under
@@ -60,3 +65,15 @@ HOMEBREW_RUBY_EXEC_ARGS = [
   ENV.fetch("HOMEBREW_RUBY_WARNINGS"),
   ENV.fetch("HOMEBREW_RUBY_DISABLE_OPTIONS"),
 ].freeze
+
+# Location for `brew alias` and `brew unalias` commands.
+#
+# Unix-Like systems store config in $HOME/.config whose location can be
+# overridden by the XDG_CONFIG_HOME environment variable. Unfortunately
+# Homebrew strictly filters environment variables in BuildEnvironment.
+HOMEBREW_ALIASES = if (path = Pathname.new("~/.config/brew-aliases").expand_path).exist? ||
+                      (path = Pathname.new("~/.brew-aliases").expand_path).exist?
+  path.realpath
+else
+  path
+end.freeze

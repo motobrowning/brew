@@ -37,12 +37,12 @@ module Homebrew
         if (tap_with_name = args.named.first&.then { Tap.with_formula_name(_1) })
           source_tap, name = tap_with_name
         else
-          name = args.named.first.downcase
+          name = args.named.fetch(0).downcase
           source_tap = CoreTap.instance
         end
         raise TapFormulaUnavailableError.new(source_tap, name) unless source_tap.installed?
 
-        destination_tap = Tap.fetch(args.named.second)
+        destination_tap = Tap.fetch(args.named.fetch(1))
         unless Homebrew::EnvConfig.developer?
           odie "Cannot extract formula to homebrew/core!" if destination_tap.core_tap?
           odie "Cannot extract formula to homebrew/cask!" if destination_tap.core_cask_tap?
@@ -176,21 +176,21 @@ module Homebrew
         # Since `method_defined?` is not a supported type guard, the use of `alias_method` below is not typesafe:
         BottleSpecification.class_eval do
           T.unsafe(self).alias_method :old_method_missing, :method_missing if method_defined?(:method_missing)
-          define_method(:method_missing) do |*|
+          define_method(:method_missing) do |*_|
             # do nothing
           end
         end
 
         Module.class_eval do
           T.unsafe(self).alias_method :old_method_missing, :method_missing if method_defined?(:method_missing)
-          define_method(:method_missing) do |*|
+          define_method(:method_missing) do |*_|
             # do nothing
           end
         end
 
         Resource.class_eval do
           T.unsafe(self).alias_method :old_method_missing, :method_missing if method_defined?(:method_missing)
-          define_method(:method_missing) do |*|
+          define_method(:method_missing) do |*_|
             # do nothing
           end
         end
@@ -200,7 +200,7 @@ module Homebrew
             T.unsafe(self).alias_method :old_parse_symbol_spec,
                                         :parse_symbol_spec
           end
-          define_method(:parse_symbol_spec) do |*|
+          define_method(:parse_symbol_spec) do |*_|
             # do nothing
           end
         end
