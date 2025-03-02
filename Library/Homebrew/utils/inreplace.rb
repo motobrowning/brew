@@ -1,4 +1,4 @@
-# typed: true # rubocop:todo Sorbet/StrictSigil
+# typed: strict
 # frozen_string_literal: true
 
 require "utils/string_inreplace_extension"
@@ -8,6 +8,7 @@ module Utils
   module Inreplace
     # Error during text replacement.
     class Error < RuntimeError
+      sig { params(errors: T::Hash[String, T::Array[String]]).void }
       def initialize(errors)
         formatted_errors = errors.reduce(+"inreplace failed\n") do |s, (path, errs)|
           s << "#{path}:\n" << errs.map { |e| "  #{e}\n" }.join
@@ -47,10 +48,11 @@ module Utils
         before:       T.nilable(T.any(Pathname, Regexp, String)),
         after:        T.nilable(T.any(Pathname, String, Symbol)),
         audit_result: T::Boolean,
+        global:       T::Boolean,
         block:        T.nilable(T.proc.params(s: StringInreplaceExtension).void),
       ).void
     }
-    def self.inreplace(paths, before = nil, after = nil, audit_result: true, &block)
+    def self.inreplace(paths, before = nil, after = nil, audit_result: true, global: true, &block)
       paths = Array(paths)
       after &&= after.to_s
       before = before.to_s if before.is_a?(Pathname)
@@ -67,8 +69,10 @@ module Utils
           raise ArgumentError, "Must supply a block or before/after params" unless block
 
           yield s
-        else
+        elsif global
           s.gsub!(T.must(before), T.must(after), audit_result:)
+        else
+          s.sub!(T.must(before), T.must(after), audit_result:)
         end
 
         errors[path] = s.errors unless s.errors.empty?
@@ -79,12 +83,19 @@ module Utils
       raise Utils::Inreplace::Error, errors if errors.present?
     end
 
+    sig {
+      params(
+        path:              T.any(String, Pathname),
+        replacement_pairs: T::Array[[T.any(Regexp, Pathname, String), T.any(Pathname, String)]],
+        read_only_run:     T::Boolean,
+        silent:            T::Boolean,
+      ).returns(String)
+    }
     def self.inreplace_pairs(path, replacement_pairs, read_only_run: false, silent: false)
       str = File.binread(path)
       contents = StringInreplaceExtension.new(str)
       replacement_pairs.each do |old, new|
-        ohai "replace #{old.inspect} with #{new.inspect}" unless silent
-        unless old
+        if old.blank?
           contents.errors << "No old value for new value #{new}! Did you pass the wrong arguments?"
           next
         end

@@ -61,6 +61,7 @@ begin
   ENV["PATH"] = path.to_s
 
   require "commands"
+  require "warnings"
 
   internal_cmd = Commands.valid_internal_cmd?(cmd) || Commands.valid_internal_dev_cmd?(cmd) if cmd
 
@@ -93,7 +94,16 @@ begin
       Utils::Analytics.report_command_run(command_instance)
       command_instance.run
     else
-      Homebrew.public_send Commands.method_name(cmd)
+      begin
+        Homebrew.public_send Commands.method_name(cmd)
+      rescue NoMethodError => e
+        converted_cmd = cmd.downcase.tr("-", "_")
+        case_error = "undefined method `#{converted_cmd}' for module Homebrew"
+        private_method_error = "private method `#{converted_cmd}' called for module Homebrew"
+        odie "Unknown command: brew #{cmd}" if [case_error, private_method_error].include?(e.message)
+
+        raise
+      end
     end
   elsif (path = Commands.external_ruby_cmd_path(cmd))
     Homebrew.running_command = cmd
@@ -193,6 +203,7 @@ rescue RuntimeError, SystemCallError => e
   end
 
   exit 1
+# Catch any other types of exceptions.
 rescue Exception => e # rubocop:disable Lint/RescueException
   onoe e
 

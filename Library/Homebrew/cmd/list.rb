@@ -75,10 +75,7 @@ module Homebrew
           conflicts "--versions", flag
           conflicts "--pinned", flag
         end
-        ["--versions", "--pinned",
-         "--installed-on-request", "--installed-as-dependency",
-         "--poured-from-bottle", "--built-from-source",
-         "-l", "-r", "-t"].each do |flag|
+        ["--versions", "--pinned", "-l", "-r", "-t"].each do |flag|
           conflicts "--full-name", flag
         end
 
@@ -87,7 +84,9 @@ module Homebrew
 
       sig { override.void }
       def run
-        if args.full_name?
+        if args.full_name? &&
+           !(args.installed_on_request? || args.installed_as_dependency? ||
+             args.poured_from_bottle? || args.built_from_source?)
           unless args.cask?
             formula_names = args.no_named? ? Formula.installed : args.named.to_resolved_formulae
             full_formula_names = formula_names.map(&:full_name).sort(&tap_and_name_comparison)
@@ -124,7 +123,10 @@ module Homebrew
           raise UsageError, "Cannot use #{flags.join(", ")} with formula arguments." unless args.no_named?
 
           formulae = if args.t?
-            Formula.installed.sort_by { |formula| test("M", formula.rack) }.reverse!
+            # See https://ruby-doc.org/3.2/Kernel.html#method-i-test
+            Formula.installed.sort_by { |formula| T.cast(test("M", formula.rack.to_s), Time) }.reverse!
+          elsif args.full_name?
+            Formula.installed.sort { |a, b| tap_and_name_comparison.call(a.full_name, b.full_name) }
           else
             Formula.installed.sort
           end
@@ -139,10 +141,11 @@ module Homebrew
             statuses << "built from source" if args.built_from_source? && !tab.poured_from_bottle
             next if statuses.empty?
 
+            name = args.full_name? ? formula.full_name : formula.name
             if flags.count > 1
-              puts "#{formula.name}: #{statuses.join(", ")}"
+              puts "#{name}: #{statuses.join(", ")}"
             else
-              puts formula.name
+              puts name
             end
           end
         elsif args.no_named?
@@ -212,7 +215,15 @@ module Homebrew
       sig { void }
       def list_casks
         casks = if args.no_named?
-          Cask::Caskroom.casks
+          cask_paths = Cask::Caskroom.path.children.map do |path|
+            if path.symlink?
+              real_path = path.realpath
+              real_path.basename.to_s
+            else
+              path.basename.to_s
+            end
+          end.uniq.sort
+          cask_paths.map { |name| Cask::CaskLoader.load(name) }
         else
           filtered_args = args.named.dup.delete_if do |n|
             Homebrew.failed = true unless Cask::Caskroom.path.join(n).exist?
@@ -235,6 +246,7 @@ module Homebrew
     class PrettyListing
       sig { params(path: T.any(String, Pathname, Keg)).void }
       def initialize(path)
+        valid_lib_extensions = [".dylib", ".pc"]
         Pathname.new(path).children.sort_by { |p| p.to_s.downcase }.each do |pn|
           case pn.basename.to_s
           when "bin", "sbin"
@@ -242,7 +254,7 @@ module Homebrew
           when "lib"
             print_dir pn do |pnn|
               # dylibs have multiple symlinks and we don't care about them
-              (pnn.extname == ".dylib" || pnn.extname == ".pc") && !pnn.symlink?
+              valid_lib_extensions.include?(pnn.extname) && !pnn.symlink?
             end
           when ".brew"
             next # Ignore .brew

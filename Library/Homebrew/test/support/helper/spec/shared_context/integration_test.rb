@@ -6,6 +6,7 @@ require "formula_installer"
 
 RSpec::Matchers.define_negated_matcher :be_a_failure, :be_a_success
 
+# These shared contexts starting with `when` don't make sense.
 RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWording
   extend RSpec::Matchers::DSL
 
@@ -133,10 +134,12 @@ RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWordin
                          bottle_block: nil, tab_attributes: nil)
     case name
     when /^testball/
+      # Use a different tarball for testball2 to avoid lock errors when writing concurrency tests
+      prefix = (name == "testball2") ? "testball2" : "testball"
       tarball = if OS.linux?
-        TEST_FIXTURE_DIR/"tarballs/testball-0.1-linux.tbz"
+        TEST_FIXTURE_DIR/"tarballs/#{prefix}-0.1-linux.tbz"
       else
-        TEST_FIXTURE_DIR/"tarballs/testball-0.1.tbz"
+        TEST_FIXTURE_DIR/"tarballs/#{prefix}-0.1.tbz"
       end
       content = <<~RUBY
         desc "Some test"
@@ -202,7 +205,7 @@ RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWordin
 
   def install_test_formula(name, content = nil, build_bottle: false)
     setup_test_formula(name, content)
-    fi = FormulaInstaller.new(Formula[name], build_bottle:)
+    fi = FormulaInstaller.new(Formula[name], build_bottle:, installed_on_request: true)
     fi.prelude
     fi.fetch
     fi.install

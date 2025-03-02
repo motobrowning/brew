@@ -19,10 +19,10 @@ module Homebrew
           installed with, plus any appended brew formula options. If <cask> or <formula> are specified,
           upgrade only the given <cask> or <formula> kegs (unless they are pinned; see `pin`, `unpin`).
 
-          Unless `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set, `brew upgrade` or `brew reinstall` will be run for
+          Unless `$HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set, `brew upgrade` or `brew reinstall` will be run for
           outdated dependents and dependents with broken linkage, respectively.
 
-          Unless `HOMEBREW_NO_INSTALL_CLEANUP` is set, `brew cleanup` will then be run for the
+          Unless `$HOMEBREW_NO_INSTALL_CLEANUP` is set, `brew cleanup` will then be run for the
           upgraded formulae or, every 30 days, for all formulae.
         EOS
         switch "-d", "--debug",
@@ -220,7 +220,6 @@ module Homebrew
           formulae_to_install,
           flags:                      args.flags_only,
           dry_run:                    args.dry_run?,
-          installed_on_request:       args.named.present?,
           force_bottle:               args.force_bottle?,
           build_from_source_formulae: args.build_from_source_formulae,
           interactive:                args.interactive?,
@@ -237,7 +236,6 @@ module Homebrew
           formulae_to_install,
           flags:                      args.flags_only,
           dry_run:                    args.dry_run?,
-          installed_on_request:       args.named.present?,
           force_bottle:               args.force_bottle?,
           build_from_source_formulae: args.build_from_source_formulae,
           interactive:                args.interactive?,
