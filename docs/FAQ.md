@@ -1,3 +1,7 @@
+---
+last_review_date: "2025-02-08"
+---
+
 # FAQ (Frequently Asked Questions)
 
 * Table of Contents
@@ -92,8 +96,8 @@ We aim to bottle everything.
 
 Homebrew's pre-built binary packages (known as [bottles](Bottles.md)) of many formulae can only be used if you install in the default installation prefix, otherwise they have to be built from source. Building from source takes a long time, is prone to failure, and is not supported. The default prefix is:
 
-* `/usr/local` for macOS on Intel,
-* `/opt/homebrew` for macOS on Apple Silicon/ARM, and
+* `/opt/homebrew` for macOS on Apple Silicon,
+* `/usr/local` for macOS on Intel, and
 * `/home/linuxbrew/.linuxbrew` for Linux.
 
 Do yourself a favour and install to the default prefix so that you can use our pre-built binary packages. *Pick another prefix at your peril!*
@@ -154,10 +158,9 @@ Ensure you have a [local copy of `homebrew/core`](#can-i-edit-formulae-myself), 
 
 ```sh
 brew update
-brew install hub
+brew install gh
 cd "$(brew --repository homebrew/core)"
-hub fetch github_username
-hub pr checkout pull_request_number
+gh pr checkout pull_request_number
 ```
 
 ## Why was a formula deleted or disabled?

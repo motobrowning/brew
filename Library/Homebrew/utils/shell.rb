@@ -1,4 +1,4 @@
-# typed: true # rubocop:todo Sorbet/StrictSigil
+# typed: strict
 # frozen_string_literal: true
 
 module Utils
@@ -17,7 +17,7 @@ module Utils
       shell_name = File.basename(path)
       # handle possible version suffix like `zsh-5.2`
       shell_name.sub!(/-.*\z/m, "")
-      shell_name.to_sym if %w[bash csh fish ksh mksh rc sh tcsh zsh].include?(shell_name)
+      shell_name.to_sym if %w[bash csh fish ksh mksh pwsh rc sh tcsh zsh].include?(shell_name)
     end
 
     sig { params(default: String).returns(String) }
@@ -60,6 +60,9 @@ module Utils
       when :bash
         bash_profile = "#{Dir.home}/.bash_profile"
         return bash_profile if File.exist? bash_profile
+      when :pwsh
+        pwsh_profile = "#{Dir.home}/.config/powershell/Microsoft.PowerShell_profile.ps1"
+        return pwsh_profile if File.exist? pwsh_profile
       when :rc
         rc_profile = "#{Dir.home}/.rcrc"
         return rc_profile if File.exist? rc_profile
@@ -67,7 +70,10 @@ module Utils
         return "#{ENV["HOMEBREW_ZDOTDIR"]}/.zshrc" if ENV["HOMEBREW_ZDOTDIR"].present?
       end
 
-      SHELL_PROFILE_MAP.fetch(preferred, "~/.profile")
+      shell = preferred
+      return "~/.profile" if shell.nil?
+
+      SHELL_PROFILE_MAP.fetch(shell, "~/.profile")
     end
 
     sig { params(variable: String, value: String).returns(T.nilable(String)) }
@@ -75,6 +81,8 @@ module Utils
       case preferred
       when :bash, :ksh, :sh, :zsh, nil
         "echo 'export #{variable}=#{sh_quote(value)}' >> #{profile}"
+      when :pwsh
+        "$env:#{variable}='#{value}' >> #{profile}"
       when :rc
         "echo '#{variable}=(#{sh_quote(value)})' >> #{profile}"
       when :csh, :tcsh
@@ -89,6 +97,8 @@ module Utils
       case preferred
       when :bash, :ksh, :mksh, :sh, :zsh, nil
         "echo 'export PATH=\"#{sh_quote(path)}:$PATH\"' >> #{profile}"
+      when :pwsh
+        "$env:PATH = '#{path}' + \":${env:PATH}\" >> #{profile}"
       when :rc
         "echo 'path=(#{sh_quote(path)} $path)' >> #{profile}"
       when :csh, :tcsh
@@ -98,17 +108,21 @@ module Utils
       end
     end
 
-    SHELL_PROFILE_MAP = {
-      bash: "~/.profile",
-      csh:  "~/.cshrc",
-      fish: "~/.config/fish/config.fish",
-      ksh:  "~/.kshrc",
-      mksh: "~/.kshrc",
-      rc:   "~/.rcrc",
-      sh:   "~/.profile",
-      tcsh: "~/.tcshrc",
-      zsh:  "~/.zshrc",
-    }.freeze
+    SHELL_PROFILE_MAP = T.let(
+      {
+        bash: "~/.profile",
+        csh:  "~/.cshrc",
+        fish: "~/.config/fish/config.fish",
+        ksh:  "~/.kshrc",
+        mksh: "~/.kshrc",
+        pwsh: "~/.config/powershell/Microsoft.PowerShell_profile.ps1",
+        rc:   "~/.rcrc",
+        sh:   "~/.profile",
+        tcsh: "~/.tcshrc",
+        zsh:  "~/.zshrc",
+      }.freeze,
+      T::Hash[Symbol, String],
+    )
 
     UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~+\n])}
 

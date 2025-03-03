@@ -361,8 +361,9 @@ module Homebrew
             EOS
           end
 
-          # we want to allow uses_from_macos for aliases but not bare dependencies
-          if self.class.aliases.include?(dep.name) && !dep.uses_from_macos?
+          # we want to allow uses_from_macos for aliases but not bare dependencies.
+          # we also allow `pkg-config` for backwards compatibility in external taps.
+          if self.class.aliases.include?(dep.name) && !dep.uses_from_macos? && (dep.name != "pkg-config" || @core_tap)
             problem "Dependency '#{dep.name}' is an alias; use the canonical name '#{dep.to_formula.full_name}'."
           end
 

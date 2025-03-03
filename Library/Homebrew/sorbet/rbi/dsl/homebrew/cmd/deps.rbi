@@ -57,6 +57,9 @@ class Homebrew::Cmd::Deps::Args < Homebrew::CLI::Args
   def include_build?; end
 
   sig { returns(T::Boolean) }
+  def include_implicit?; end
+
+  sig { returns(T::Boolean) }
   def include_optional?; end
 
   sig { returns(T::Boolean) }

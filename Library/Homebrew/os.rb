@@ -30,8 +30,8 @@ module OS
   # @api public
   sig { returns(Version) }
   def self.kernel_version
-    require "utils/popen"
-    @kernel_version ||= T.let(Version.new(Utils.safe_popen_read("uname", "-r").chomp), T.nilable(Version))
+    require "etc"
+    @kernel_version ||= T.let(Version.new(Etc.uname.fetch(:release)), T.nilable(Version))
   end
 
   # Get the kernel name.
@@ -39,8 +39,8 @@ module OS
   # @api public
   sig { returns(String) }
   def self.kernel_name
-    require "utils/popen"
-    @kernel_name ||= T.let(Utils.safe_popen_read("uname", "-s").chomp, T.nilable(String))
+    require "etc"
+    @kernel_name ||= T.let(Etc.uname.fetch(:sysname), T.nilable(String))
   end
 
   ::OS_VERSION = T.let(ENV.fetch("HOMEBREW_OS_VERSION").freeze, String)
@@ -48,7 +48,7 @@ module OS
   # See Linux-CI.md
   LINUX_CI_OS_VERSION = "Ubuntu 22.04"
   LINUX_GLIBC_CI_VERSION = "2.35"
-  LINUX_GLIBC_NEXT_CI_VERSION = "2.35"
+  LINUX_GLIBC_NEXT_CI_VERSION = "2.39"
   LINUX_GCC_CI_VERSION = "11.0"
   LINUX_PREFERRED_GCC_COMPILER_FORMULA = "gcc@11" # https://packages.ubuntu.com/jammy/gcc
   LINUX_PREFERRED_GCC_RUNTIME_FORMULA = "gcc"

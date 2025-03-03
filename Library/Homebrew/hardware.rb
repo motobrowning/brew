@@ -27,6 +27,7 @@ module Hardware
       sig { returns(T::Hash[Symbol, String]) }
       def optimization_flags
         @optimization_flags ||= T.let({
+          dunno:              "",
           native:             arch_flag("native"),
           ivybridge:          "-march=ivybridge",
           sandybridge:        "-march=sandybridge",
@@ -211,6 +212,7 @@ module Hardware
       when 4 then "quad"
       when 6 then "hexa"
       when 8 then "octa"
+      when 10 then "deca"
       when 12 then "dodeca"
       else
         Hardware::CPU.cores.to_s

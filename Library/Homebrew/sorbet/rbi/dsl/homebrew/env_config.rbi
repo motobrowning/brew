@@ -50,6 +50,9 @@ module Homebrew::EnvConfig
     def brew_git_remote; end
 
     sig { returns(T.nilable(::String)) }
+    def brew_wrapper; end
+
+    sig { returns(T.nilable(::String)) }
     def browser; end
 
     sig { returns(T.nilable(::String)) }
@@ -137,6 +140,12 @@ module Homebrew::EnvConfig
     def forbidden_taps; end
 
     sig { returns(T::Boolean) }
+    def force_api_auto_update?; end
+
+    sig { returns(T.nilable(::String)) }
+    def force_brew_wrapper; end
+
+    sig { returns(T::Boolean) }
     def force_brewed_ca_certificates?; end
 
     sig { returns(T::Boolean) }
@@ -159,6 +168,12 @@ module Homebrew::EnvConfig
 
     sig { returns(T.nilable(::String)) }
     def ftp_proxy; end
+
+    sig { returns(T.nilable(::String)) }
+    def git_committer_email; end
+
+    sig { returns(T.nilable(::String)) }
+    def git_committer_name; end
 
     sig { returns(T.nilable(::String)) }
     def git_email; end
@@ -186,6 +201,9 @@ module Homebrew::EnvConfig
 
     sig { returns(String) }
     def install_badge; end
+
+    sig { returns(T::Boolean) }
+    def livecheck_autobump?; end
 
     sig { returns(String) }
     def livecheck_watchlist; end
@@ -219,6 +237,9 @@ module Homebrew::EnvConfig
 
     sig { returns(T::Boolean) }
     def no_env_hints?; end
+
+    sig { returns(T::Boolean) }
+    def no_force_brew_wrapper?; end
 
     sig { returns(T::Boolean) }
     def no_github_api?; end
@@ -285,6 +306,9 @@ module Homebrew::EnvConfig
 
     sig { returns(T::Boolean) }
     def upgrade_greedy?; end
+
+    sig { returns(T.nilable(::String)) }
+    def upgrade_greedy_casks; end
 
     sig { returns(T::Boolean) }
     def verbose?; end

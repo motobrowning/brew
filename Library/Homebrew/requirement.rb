@@ -1,7 +1,6 @@
 # typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
-require "attrable"
 require "dependable"
 require "dependency"
 require "dependencies"
@@ -13,14 +12,15 @@ require "build_environment"
 class Requirement
   include Dependable
   extend Cachable
+  extend T::Helpers
+
+  # This base class enforces no constraints on its own.
+  # Individual subclasses use the `satisfy` DSL to define those constraints.
+  abstract!
 
   attr_reader :name, :cask, :download
 
   def initialize(tags = [])
-    # Only allow instances of subclasses. This base class enforces no constraints on its own.
-    # Individual subclasses use the `satisfy` DSL to define those constraints.
-    raise "Do not call `Requirement.new' directly without a subclass." unless self.class < Requirement
-
     @cask = self.class.cask
     @download = self.class.download
     tags.each do |tag|
@@ -59,8 +59,9 @@ class Requirement
     s
   end
 
-  # Pass a block or boolean to the satisfy DSL method instead of overriding.
-  sig(:final) {
+  # Overriding {#satisfied?} is unsupported.
+  # Pass a block or boolean to the satisfy DSL method instead.
+  sig {
     params(
       env:          T.nilable(String),
       cc:           T.nilable(String),
@@ -81,8 +82,9 @@ class Requirement
     true
   end
 
-  # Pass a boolean to the fatal DSL method instead of overriding.
-  sig(:final) { returns(T::Boolean) }
+  # Overriding {#fatal?} is unsupported.
+  # Pass a boolean to the fatal DSL method instead.
+  sig { returns(T::Boolean) }
   def fatal?
     self.class.fatal || false
   end
@@ -176,11 +178,23 @@ class Requirement
 
   class << self
     include BuildEnvironment::DSL
-    extend Attrable
 
     attr_reader :env_proc, :build
 
-    attr_rw :fatal, :cask, :download
+    sig { params(val: String).returns(T.nilable(String)) }
+    def cask(val = T.unsafe(nil))
+      val.nil? ? @cask : @cask = val
+    end
+
+    sig { params(val: String).returns(T.nilable(String)) }
+    def download(val = T.unsafe(nil))
+      val.nil? ? @download : @download = val
+    end
+
+    sig { params(val: T::Boolean).returns(T.nilable(T::Boolean)) }
+    def fatal(val = T.unsafe(nil))
+      val.nil? ? @fatal : @fatal = val
+    end
 
     def satisfy(options = nil, &block)
       return @satisfied if options.nil? && !block

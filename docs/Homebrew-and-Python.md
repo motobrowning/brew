@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Python
 
 This page describes how Python is handled in Homebrew for users. See [Python for Formula Authors](Python-for-Formula-Authors.md) for advice on writing formulae to install packages written in Python.
@@ -53,7 +57,7 @@ The `site-packages` is a directory that contains Python modules, including bindi
 $(brew --prefix)/lib/pythonX.Y/site-packages
 ```
 
-So, for Python 3.y.z, you'll find it at `/usr/local/lib/python3.y/site-packages` on macOS Intel.
+So, for Python 3.y.z, you'll find it at `/opt/homebrew/lib/python3.y/site-packages` on Apple Silicon.
 
 Python 3.y also searches for modules in:
 

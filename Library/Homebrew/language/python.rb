@@ -187,17 +187,21 @@ module Language
         venv.create(system_site_packages:, without_pip:)
 
         # Find any Python bindings provided by recursive dependencies
-        formula_deps = formula.recursive_dependencies
-        pth_contents = formula_deps.filter_map do |d|
-          next if d.build? || d.test?
+        pth_contents = []
+        formula.recursive_dependencies do |dependent, dep|
+          Dependency.prune if dep.build? || dep.test?
+          # Apply default filter
+          Dependency.prune if (dep.optional? || dep.recommended?) && !dependent.build.with?(dep)
           # Do not add the main site-package provided by the brewed
           # Python formula, to keep the virtual-env's site-package pristine
-          next if python_names.include? d.name
+          Dependency.prune if python_names.include? dep.name
+          # Skip uses_from_macos dependencies as these imply no Python bindings
+          Dependency.prune if dep.uses_from_macos?
 
-          dep_site_packages = Formula[d.name].opt_prefix/Language::Python.site_packages(python)
-          next unless dep_site_packages.exist?
+          dep_site_packages = dep.to_formula.opt_prefix/Language::Python.site_packages(python)
+          Dependency.prune unless dep_site_packages.exist?
 
-          "import site; site.addsitedir('#{dep_site_packages}')\n"
+          pth_contents << "import site; site.addsitedir('#{dep_site_packages}')\n"
         end
         (venv.site_packages/"homebrew_deps.pth").write pth_contents.join unless pth_contents.empty?
 
@@ -236,7 +240,7 @@ module Language
         ).returns(Virtualenv)
       }
       def virtualenv_install_with_resources(using: nil, system_site_packages: true, without_pip: true,
-                                            link_manpages: false, without: nil, start_with: nil, end_with: nil)
+                                            link_manpages: true, without: nil, start_with: nil, end_with: nil)
         python = using
         if python.nil?
           wanted = python_names.select { |py| needs_python?(py) }
@@ -336,7 +340,10 @@ module Language
             version = rp.match %r{^#{HOMEBREW_CELLAR}/python@(.*?)/}o
             version = "@#{version.captures.first}" unless version.nil?
 
-            new_target = rp.sub %r{#{HOMEBREW_CELLAR}/python#{version}/[^/]+}, Formula["python#{version}"].opt_prefix
+            new_target = rp.sub(
+              %r{#{HOMEBREW_CELLAR}/python#{version}/[^/]+},
+              Formula["python#{version}"].opt_prefix.to_s,
+            )
             f.unlink
             f.make_symlink new_target
           end
@@ -347,7 +354,10 @@ module Language
             version = prefix_path.match %r{^#{HOMEBREW_CELLAR}/python@(.*?)/}o
             version = "@#{version.captures.first}" unless version.nil?
 
-            prefix_path.sub! %r{^#{HOMEBREW_CELLAR}/python#{version}/[^/]+}, Formula["python#{version}"].opt_prefix
+            prefix_path.sub!(
+              %r{^#{HOMEBREW_CELLAR}/python#{version}/[^/]+},
+              Formula["python#{version}"].opt_prefix.to_s,
+            )
             prefix_file.atomic_write prefix_path
           end
 
@@ -358,7 +368,7 @@ module Language
             cfg = cfg_file.read
             framework = "Frameworks/Python.framework/Versions"
             cfg.match(%r{= *(#{HOMEBREW_CELLAR}/(python@[\d.]+)/[^/]+(?:/#{framework}/[\d.]+)?/bin)}) do |match|
-              cfg.sub! match[1].to_s, Formula[match[2]].opt_bin
+              cfg.sub! match[1].to_s, Formula[T.must(match[2])].opt_bin.to_s
               cfg_file.atomic_write cfg
             end
           end
@@ -411,7 +421,7 @@ module Language
             build_isolation: T::Boolean,
           ).void
         }
-        def pip_install_and_link(targets, link_manpages: false, build_isolation: true)
+        def pip_install_and_link(targets, link_manpages: true, build_isolation: true)
           bin_before = Dir[@venv_root/"bin/*"].to_set
           man_before = Dir[@venv_root/"share/man/man*/*"].to_set if link_manpages
 

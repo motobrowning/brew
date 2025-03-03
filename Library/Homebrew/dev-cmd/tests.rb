@@ -3,6 +3,7 @@
 
 require "abstract_command"
 require "fileutils"
+require "hardware"
 require "system_command"
 
 module Homebrew
@@ -75,7 +76,13 @@ module Homebrew
             end
           end
 
-          parallel = false if args.profile
+          # We use `ParallelTests.last_process?` in `test/spec_helper.rb` to
+          # handle SimpleCov output but, due to how the method is implemented,
+          # it doesn't work as expected if the number of processes is greater
+          # than one but lower than the number of CPU cores in the execution
+          # environment. Coverage information isn't saved in that scenario,
+          # so we disable parallel testing as a workaround in this case.
+          parallel = false if args.profile || (args.coverage? && files.length < Hardware::CPU.cores)
 
           parallel_rspec_log_name = "parallel_runtime_rspec"
           parallel_rspec_log_name = "#{parallel_rspec_log_name}.generic" if args.generic?
@@ -137,13 +144,6 @@ module Homebrew
 
           ENV["HOMEBREW_DEBUG"] = "1" if args.debug? # Used in spec_helper.rb to require the "debug" gem.
 
-          # Submit test flakiness information using BuildPulse
-          # BUILDPULSE used in spec_helper.rb
-          if use_buildpulse?
-            ENV["BUILDPULSE"] = "1"
-            ohai "Running tests with BuildPulse-friendly settings"
-          end
-
           # Workaround for:
           #
           # ```
@@ -158,8 +158,6 @@ module Homebrew
           end
           success = $CHILD_STATUS.success?
 
-          run_buildpulse if use_buildpulse?
-
           return if success
 
           Homebrew.failed = true
@@ -167,38 +165,6 @@ module Homebrew
       end
 
       private
-
-      sig { returns(T.nilable(T::Boolean)) }
-      def use_buildpulse?
-        return @use_buildpulse if defined?(@use_buildpulse)
-
-        @use_buildpulse = T.let(ENV["HOMEBREW_BUILDPULSE_ACCESS_KEY_ID"].present? &&
-                          ENV["HOMEBREW_BUILDPULSE_SECRET_ACCESS_KEY"].present? &&
-                          ENV["HOMEBREW_BUILDPULSE_ACCOUNT_ID"].present? &&
-                          ENV["HOMEBREW_BUILDPULSE_REPOSITORY_ID"].present?, T.nilable(T::Boolean))
-      end
-
-      sig { void }
-      def run_buildpulse
-        require "formula"
-
-        with_env(HOMEBREW_NO_AUTO_UPDATE: "1", HOMEBREW_NO_BOOTSNAP: "1") do
-          ensure_formula_installed!("buildpulse-test-reporter",
-                                    reason: "reporting test flakiness")
-        end
-
-        ENV["BUILDPULSE_ACCESS_KEY_ID"] = ENV.fetch("HOMEBREW_BUILDPULSE_ACCESS_KEY_ID")
-        ENV["BUILDPULSE_SECRET_ACCESS_KEY"] = ENV.fetch("HOMEBREW_BUILDPULSE_SECRET_ACCESS_KEY")
-
-        ohai "Sending test results to BuildPulse"
-
-        system_command Formula["buildpulse-test-reporter"].opt_bin/"buildpulse-test-reporter",
-                       args: [
-                         "submit", "#{HOMEBREW_LIBRARY_PATH}/test/junit",
-                         "--account-id", ENV.fetch("HOMEBREW_BUILDPULSE_ACCOUNT_ID"),
-                         "--repository-id", ENV.fetch("HOMEBREW_BUILDPULSE_REPOSITORY_ID")
-                       ]
-      end
 
       sig { returns(T::Array[String]) }
       def changed_test_files
@@ -249,10 +215,10 @@ module Homebrew
         ENV["HOMEBREW_TEST_GENERIC_OS"] = "1" if args.generic?
         ENV["HOMEBREW_TEST_ONLINE"] = "1" if args.online?
         ENV["HOMEBREW_SORBET_RUNTIME"] = "1"
+        ENV["HOMEBREW_NO_FORCE_BREW_WRAPPER"] = "1"
 
         # TODO: remove this and fix tests when possible.
         ENV["HOMEBREW_NO_INSTALL_FROM_API"] = "1"
-        ENV.delete("HOMEBREW_INTERNAL_JSON_V3")
 
         ENV["USER"] ||= system_command!("id", args: ["-nu"]).stdout.chomp
 

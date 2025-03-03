@@ -4,17 +4,17 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     allow:
       - dependency-type: all
     # The actions in triage-issues.yml are updated in the Homebrew/.github repo
     ignore:
       - dependency-name: actions/stale
-      - dependency-name: dessant/lock-threads
     groups:
       artifacts:
         patterns:
           - actions/*-artifact
+    open-pull-requests-limit: 10
 
   - package-ecosystem: bundler
     directory: /Library/Homebrew
@@ -22,6 +22,11 @@ updates:
       interval: daily
     allow:
       - dependency-type: all
+    groups:
+      sorbet:
+        patterns:
+          - "sorbet*"
+    open-pull-requests-limit: 10
 
   - package-ecosystem: npm
     directory: /
@@ -29,6 +34,7 @@ updates:
       interval: daily
     allow:
       - dependency-type: all
+    open-pull-requests-limit: 10
 
   - package-ecosystem: docker
     directory: /
@@ -36,6 +42,7 @@ updates:
       interval: daily
     allow:
       - dependency-type: all
+    open-pull-requests-limit: 10
 
   - package-ecosystem: devcontainers
     directory: /
@@ -43,6 +50,7 @@ updates:
       interval: daily
     allow:
       - dependency-type: all
+    open-pull-requests-limit: 10
 
   - package-ecosystem: pip
     directory: /
@@ -50,3 +58,12 @@ updates:
       interval: daily
     allow:
       - dependency-type: all
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: pip
+    directory: /Library/Homebrew/formula-analytics/
+    schedule:
+      interval: daily
+    allow:
+      - dependency-type: all
+    open-pull-requests-limit: 10

@@ -1,4 +1,4 @@
-# typed: true # rubocop:todo Sorbet/StrictSigil
+# typed: strict
 # frozen_string_literal: true
 
 require "rubocops/extend/formula_cop"
@@ -83,6 +83,7 @@ module RuboCop
           git
           groff
           gzip
+          jq
           less
           mandoc
           openssl
