@@ -40,7 +40,9 @@ class Cmd
 
   def initialize(arg0, args)
     @arg0 = arg0
-    @args = args.freeze
+    split_args = split_args_at_double_dash(args)
+    @args = split_args[0].freeze
+    @positional_args = split_args[1].freeze
     @config = ENV.fetch("HOMEBREW_CCCFG", "")
     @prefix = ENV["HOMEBREW_PREFIX"]
     @cellar = ENV["HOMEBREW_CELLAR"]
@@ -55,6 +57,15 @@ class Cmd
     @formula_buildpath = ENV["HOMEBREW_FORMULA_BUILDPATH"]
     # matches opt or cellar prefix and formula name
     @keg_regex = %r{(#{Regexp.escape(opt)}|#{Regexp.escape(cellar)})/([\w+-.@]+)}
+  end
+
+  def split_args_at_double_dash(args)
+    double_dash_index = args.find_index("--")
+    if double_dash_index
+      [args[...double_dash_index], args[double_dash_index..]]
+    else
+      [args, []]
+    end
   end
 
   def mode
@@ -130,7 +141,7 @@ class Cmd
       end
     end
 
-    case mode
+    optional_args = case mode
     when :ccld
       cflags + args + cppflags + ldflags
     when :cxxld
@@ -146,6 +157,8 @@ class Cmd
     when :ld
       ldflags + args
     end
+
+    optional_args + @positional_args
   end
 
   def refurbished_args
@@ -313,8 +326,8 @@ class Cmd
   def cppflags
     args = []
     args += path_flags("-isystem", isystem_paths) + path_flags("-I", include_paths)
-    # Add -nostdinc when building against glibc@2.13 to avoid mixing system and brewed glibc headers.
-    args << "-nostdinc" if @deps.include?("glibc@2.13")
+    # Add -nostdinc when building against versioned glibc to avoid mixing system and brewed glibc headers.
+    args << "-nostdinc" if @deps.any? { |dep| dep.match?(/^glibc@.+$/) }
     # Ideally this would be -ffile-prefix-map, but that requires a minimum of GCC 8, LLVM Clang 10 or Apple Clang 12
     # and detecting the version dynamically based on what `HOMEBREW_CC` may have been rewritten to point to is awkward
     args << "-fdebug-prefix-map=#{formula_buildpath}=." if formula_buildpath && !debug_symbols?
@@ -340,19 +353,20 @@ class Cmd
   end
 
   def ldflags_linux(args)
+    versioned_glibc_dep = @deps.find { |dep| dep.match?(/^glibc@.+$/) }
     unless mode == :ld
       wl = "-Wl,"
-      if @deps.include?("glibc@2.13")
-        args << "-B#{@opt}/glibc@2.13/lib"
+      if versioned_glibc_dep
+        args << "-B#{@opt}/#{versioned_glibc_dep}/lib"
       else
         args << "-B#{@opt}/glibc/lib"
       end
     end
     args += rpath_flags("#{wl}-rpath=", rpath_paths)
     args += ["#{wl}--dynamic-linker=#{dynamic_linker_path}"] if dynamic_linker_path
-    # Use -rpath-link to make sure linker uses glibc@2.13 rather than the system glibc for indirect
+    # Use -rpath-link to make sure linker uses versioned glibc rather than the system glibc for indirect
     # dependencies because -L will only handle direct dependencies.
-    args << "#{wl}-rpath-link=#{@opt}/glibc@2.13/lib" if @deps.include?("glibc@2.13")
+    args << "#{wl}-rpath-link=#{@opt}/#{versioned_glibc_dep}/lib" if versioned_glibc_dep
     args
   end
 

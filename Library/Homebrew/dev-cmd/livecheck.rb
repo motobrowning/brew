@@ -38,6 +38,8 @@ module Homebrew
                description: "Only check casks."
         switch "--extract-plist",
                description: "Enable checking multiple casks with ExtractPlist strategy."
+        switch "--autobump",
+               description: "Include packages that are autobumped by BrewTestBot. By default these are skipped."
 
         conflicts "--debug", "--json"
         conflicts "--tap=", "--eval-all", "--installed"
@@ -60,7 +62,7 @@ module Homebrew
 
         formulae_and_casks_to_check = Homebrew.with_no_api_env do
           if args.tap
-            tap = Tap.fetch(T.must(args.tap))
+            tap = Tap.fetch(args.tap)
             formulae = args.cask? ? [] : tap.formula_files.map { |path| Formulary.factory(path) }
             casks = args.formula? ? [] : tap.cask_files.map { |path| Cask::CaskLoader.load(path) }
             formulae + casks
@@ -90,11 +92,34 @@ module Homebrew
           end
         end
 
+        skipped_autobump = T.let(false, T::Boolean)
+        if skip_autobump?
+          autobump_lists = {}
+
+          formulae_and_casks_to_check = formulae_and_casks_to_check.reject do |formula_or_cask|
+            tap = formula_or_cask.tap
+            next false if tap.nil?
+
+            autobump_lists[tap] ||= begin
+              autobump_path = tap.path/".github/autobump.txt"
+              autobump_path.exist? ? autobump_path.readlines.map(&:strip) : []
+            end
+
+            name = formula_or_cask.respond_to?(:token) ? formula_or_cask.token : formula_or_cask.name
+            next unless autobump_lists[tap].include?(name)
+
+            odebug "Skipping #{name} as it is autobumped in #{tap}."
+            skipped_autobump = true
+            true
+          end
+        end
+
         formulae_and_casks_to_check = formulae_and_casks_to_check.sort_by do |formula_or_cask|
           formula_or_cask.respond_to?(:token) ? formula_or_cask.token : formula_or_cask.name
         end
 
-        raise UsageError, "No formulae or casks to check." if formulae_and_casks_to_check.blank?
+        raise UsageError, "No formulae or casks to check." if formulae_and_casks_to_check.blank? && !skipped_autobump
+        return if formulae_and_casks_to_check.blank?
 
         options = {
           json:                 args.json?,
@@ -116,6 +141,11 @@ module Homebrew
       sig { returns(String) }
       def watchlist_path
         @watchlist_path ||= T.let(File.expand_path(Homebrew::EnvConfig.livecheck_watchlist), T.nilable(String))
+      end
+
+      sig { returns(T::Boolean) }
+      def skip_autobump?
+        !(args.autobump? || Homebrew::EnvConfig.livecheck_autobump?)
       end
     end
   end

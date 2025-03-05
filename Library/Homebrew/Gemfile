@@ -53,6 +53,8 @@ end
 group :tests, optional: true do
   gem "parallel_tests", require: false
   gem "rspec", require: false
+  gem "rspec-core", require: false
+  gem "rspec-expectations", require: false
   gem "rspec-github", require: false
   gem "rspec_junit_formatter", require: false
   gem "rspec-retry", require: false
@@ -69,6 +71,9 @@ end
 group :vscode, optional: true do
   gem "ruby-lsp", require: false
 end
+group :formula_analytics, optional: true do
+  gem "pycall", require: false
+end
 
 # shared gems (used by multiple groups)
 group :audit, :bump_unversioned_casks, :livecheck, optional: true do
@@ -77,6 +82,7 @@ end
 
 # vendored gems (no group)
 gem "addressable"
+gem "base64"
 gem "concurrent-ruby"
 gem "patchelf"
 gem "plist"

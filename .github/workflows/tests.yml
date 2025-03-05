@@ -29,7 +29,7 @@ concurrency:
 jobs:
   syntax:
     if: github.repository_owner == 'Homebrew'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
@@ -40,7 +40,7 @@ jobs:
           test-bot: false
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-syntax-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -53,7 +53,7 @@ jobs:
         run: brew install shellcheck shfmt
 
       - name: Cache style cache
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ~/.cache/Homebrew/style
           key: syntax-style-cache-${{ github.sha }}
@@ -92,7 +92,7 @@ jobs:
           test-bot: true
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-tap-syntax-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -102,7 +102,7 @@ jobs:
         run: brew install-bundler-gems --groups=style
 
       - name: Cache style cache
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ~/.cache/Homebrew/style
           key: tap-syntax-style-cache-${{ github.sha }}
@@ -113,10 +113,8 @@ jobs:
 
       - name: Set up all Homebrew taps
         run: |
-          brew tap homebrew/aliases
           brew tap homebrew/bundle
           brew tap homebrew/command-not-found
-          brew tap homebrew/formula-analytics
           brew tap homebrew/portable-ruby
           brew tap homebrew/services
 
@@ -129,9 +127,7 @@ jobs:
                      homebrew/services \
                      homebrew/test-bot
 
-          brew style homebrew/aliases \
-                     homebrew/command-not-found \
-                     homebrew/formula-analytics \
+          brew style homebrew/command-not-found \
                      homebrew/portable-ruby
 
       - name: Run brew style on homebrew/cask
@@ -141,7 +137,7 @@ jobs:
   formula-audit:
     name: formula audit
     needs: syntax
-    if: github.repository_owner == 'Homebrew'
+    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/homebrew/brew:master
@@ -166,7 +162,7 @@ jobs:
   cask-audit:
     name: cask audit
     needs: syntax
-    if: github.repository_owner == 'Homebrew'
+    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
     runs-on: macos-15
     steps:
       - name: Set up Homebrew
@@ -184,16 +180,13 @@ jobs:
         run: |
           brew audit --skip-style --except=version --tap=homebrew/cask
 
-      - name: Generate formula API
-        run: brew generate-formula-api --dry-run
-
       - name: Generate cask API
         run: brew generate-cask-api --dry-run
 
   vendored-gems:
     name: vendored gems
     needs: syntax
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
@@ -221,12 +214,12 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runs-on }}
     needs: syntax
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    if: github.event_name != 'push'
     strategy:
       matrix:
         include:
-          - name: update-test (Ubuntu 22.04)
-            runs-on: ubuntu-22.04
+          - name: update-test (Ubuntu)
+            runs-on: ubuntu-latest
           - name: update-test (macOS)
             runs-on: macos-15
     steps:
@@ -245,9 +238,11 @@ jobs:
           brew update-test --commit=HEAD
 
   tests:
+    if: github.event_name != 'push'
     name: ${{ matrix.name }}
     needs: syntax
     runs-on: ${{ matrix.runs-on }}
+    container: ${{ matrix.container }}
     strategy:
       matrix:
         include:
@@ -257,12 +252,16 @@ jobs:
           - name: tests (generic OS)
             test-flags: --generic --coverage
             runs-on: ubuntu-latest
+          - name: tests (Ubuntu 24.04)
+            test-flags: --coverage
+            runs-on: ubuntu-24.04
           - name: tests (Ubuntu 22.04)
             test-flags: --coverage
             runs-on: ubuntu-22.04
           - name: tests (Ubuntu 20.04)
             test-flags: --coverage
-            runs-on: ubuntu-20.04
+            runs-on: ubuntu-latest
+            container: ghcr.io/homebrew/ubuntu20.04:latest
           - name: tests (macOS 13 x86_64)
             test-flags: --coverage
             runs-on: macos-13
@@ -282,7 +281,7 @@ jobs:
           test-bot: false
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ matrix.runs-on }}-tests-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -297,15 +296,11 @@ jobs:
         run: mkdir tests
 
       - name: Cache parallel tests log
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: tests
           key: ${{ runner.os }}-${{ matrix.test-flags }}-parallel_runtime_rspec-${{ github.sha }}
           restore-keys: ${{ runner.os }}-${{ matrix.test-flags }}-parallel_runtime_rspec-
-
-      - name: Install brew tests dependencies
-        if: matrix.name != 'tests (generic OS)'
-        run: brew install buildpulse-test-reporter
 
       - name: Install brew tests --online dependencies
         if: matrix.name == 'tests (online)'
@@ -326,18 +321,8 @@ jobs:
       - name: Run brew tests
         if: github.event_name == 'pull_request' || matrix.name != 'tests (online)'
         run: |
-          # brew tests
-
-          # Don't attempt to use BuildPulse for generic tests.
-          # Fails for no apparent reason.
-          if [[ "${{ matrix.name }}" =~ "generic" ]]
-          then
-            unset HOMEBREW_BUILDPULSE_ACCESS_KEY_ID
-          fi
-
-          # Retry multiple times when using BuildPulse to detect and submit
-          # flakiness (because rspec-retry is disabled).
-          if [[ -n "${HOMEBREW_BUILDPULSE_ACCESS_KEY_ID-}" ]]
+          # Retry multiple times to detect and submit flakiness to CodeCov (because rspec-retry is disabled).
+          if [[ -n "${CODECOV_TOKEN-}" ]]
           then
             brew tests ${{ matrix.test-flags }} ||
             brew tests ${{ matrix.test-flags }}
@@ -348,12 +333,24 @@ jobs:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # These cannot be queried at the macOS level on GitHub Actions.
           HOMEBREW_LANGUAGES: en-GB
-          HOMEBREW_BUILDPULSE_ACCESS_KEY_ID: ${{ secrets.BUILDPULSE_ACCESS_KEY_ID }}
-          HOMEBREW_BUILDPULSE_SECRET_ACCESS_KEY: ${{ secrets.BUILDPULSE_SECRET_ACCESS_KEY }}
-          HOMEBREW_BUILDPULSE_ACCOUNT_ID: 1503512
-          HOMEBREW_BUILDPULSE_REPOSITORY_ID: 53238813
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      - uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
+      - name: Get RSpec JUnit XML filenames
+        id: junit_xml
+        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
+        run: |
+          mkdir -p Library/Homebrew/test/junit
+          filenames=$(find Library/Homebrew/test/junit -name 'rspec*.xml' -print | tr '\n' ',')
+          echo "filenames=${filenames%,}" >> "$GITHUB_OUTPUT"
+
+      - uses: codecov/test-results-action@5c441a7bcc06f8706cde90192857d337c5dab8a6 # v1.0.4
+        with:
+          working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
+          files: ${{ steps.junit_xml.outputs.filenames }}
+          disable_search: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
         with:
           working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
           files: Library/Homebrew/test/coverage/coverage.xml
@@ -363,18 +360,21 @@ jobs:
   test-default-formula:
     name: ${{ matrix.name }}
     needs: syntax
-    if: github.repository_owner == 'Homebrew'
+    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
     runs-on: ${{ matrix.runs-on }}
     container: ${{ matrix.container }}
     strategy:
       matrix:
         include:
+          - name: test default formula (Ubuntu 24.04)
+            runs-on: ubuntu-latest
+            container: ghcr.io/homebrew/ubuntu24.04:latest
           - name: test default formula (Ubuntu 22.04)
             runs-on: ubuntu-latest
             container: ghcr.io/homebrew/ubuntu22.04:master
           - name: test default formula (Ubuntu 20.04)
             runs-on: ubuntu-latest
-            container: ghcr.io/homebrew/ubuntu20.04
+            container: ghcr.io/homebrew/ubuntu20.04:latest
           - name: test default formula (macOS 13 x86_64)
             runs-on: macos-13
           - name: test default formula (macOS 15 arm64)
@@ -398,3 +398,46 @@ jobs:
       - run: brew install gnu-tar
 
       - run: brew test-bot --only-formulae --only-json-tab --test-default-formula
+
+  test-analytics:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    needs: syntax
+    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
+    steps:
+    - name: Set up Homebrew
+      id: set-up-homebrew
+      uses: Homebrew/actions/setup-homebrew@master
+
+    - name: Setup Python
+      uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+      with:
+        python-version-file: ${{ steps.set-up-homebrew.outputs.repository-path }}/Library/Homebrew/formula-analytics/.python-version
+
+    - name: Cache Homebrew Bundler RubyGems
+      id: cache
+      uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+      with:
+        path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+        key: ${{ runner.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+        restore-keys: ${{ runner.os }}-rubygems-
+
+    - name: Install Homebrew Bundler RubyGems
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: brew install-bundler-gems
+
+    - run: brew formula-analytics --setup
+
+    - run: brew formula-analytics --install --json --days-ago=2
+      if: github.event.pull_request.head.repo.fork == false && (github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]')
+      env:
+        HOMEBREW_INFLUXDB_TOKEN: ${{ secrets.HOMEBREW_INFLUXDB_READ_TOKEN }}
+
+    - run: brew generate-analytics-api
+      if: github.event.pull_request.head.repo.fork == false && (github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]')
+      env:
+        HOMEBREW_INFLUXDB_TOKEN: ${{ secrets.HOMEBREW_INFLUXDB_READ_TOKEN }}

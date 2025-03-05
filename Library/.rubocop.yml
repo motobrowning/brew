@@ -1,9 +1,14 @@
 ---
+plugins:
+  - rubocop-md:
+      plugin_class_name: RuboCop::Markdown::Plugin
+  - rubocop-performance:
+      plugin_class_name: RuboCop::Performance::Plugin
+  - rubocop-rspec:
+      plugin_class_name: RuboCop::RSpec::Plugin
+
 require:
   - ./Homebrew/rubocops.rb
-  - rubocop-md
-  - rubocop-performance
-  - rubocop-rspec
   - rubocop-sorbet
 
 inherit_mode:
@@ -255,6 +260,11 @@ RSpec/Focus:
 RSpec/MessageSpies:
   EnforcedStyle: receive
 
+# These are legacy violations that we should try to fix.
+Sorbet/AllowIncompatibleOverride:
+  Exclude:
+    - "Homebrew/livecheck/strategy/*.rb"
+
 # Try getting rid of these.
 Sorbet/ConstantsFromStrings:
   Enabled: false
@@ -284,6 +294,7 @@ Sorbet/StrictSigil:
     - "Taps/**/*"
     - "/**/{Formula,Casks}/**/*.rb"
     - "**/{Formula,Casks}/**/*.rb"
+    - "Homebrew/utils/ruby_check_version_script.rb" # A standalone script.
     - "Homebrew/{standalone,startup}/*.rb" # These are loaded before sorbet-runtime
     - "Homebrew/test/**/*.rb"
 
@@ -408,10 +419,6 @@ Style/NumericLiterals:
 Style/OpenStructUse:
   Exclude:
     - "Taps/**/*"
-    # TODO: This is a pre-existing violation and should be corrected
-    #   to define methods so that call sites can be type-checked.
-    - "Homebrew/cli/args.rb"
-    - "Homebrew/cli/args.rbi"
 
 Style/OptionalBooleanParameter:
   AllowedMethods:
@@ -419,6 +426,11 @@ Style/OptionalBooleanParameter:
     # see https://ruby-doc.org/3.3.4/Object.html#method-i-respond_to-3F
     - respond_to?
     - respond_to_missing?
+
+# Broken in RuboCop 1.68.0 so tries to fix line continuations in inline patch blocks:
+# https://github.com/Homebrew/brew/actions/runs/11653110391/job/32460881827?pr=18682
+Style/RedundantLineContinuation:
+  Enabled: false
 
 # Rescuing `StandardError` is an understood default.
 Style/RescueStandardError:

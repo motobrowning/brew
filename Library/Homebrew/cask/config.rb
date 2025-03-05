@@ -1,4 +1,4 @@
-# typed: true # rubocop:todo Sorbet/StrictSigil
+# typed: strict
 # frozen_string_literal: true
 
 require "json"
@@ -12,32 +12,38 @@ module Cask
   #
   # @api internal
   class Config
-    DEFAULT_DIRS = {
-      appdir:               "/Applications",
-      keyboard_layoutdir:   "/Library/Keyboard Layouts",
-      colorpickerdir:       "~/Library/ColorPickers",
-      prefpanedir:          "~/Library/PreferencePanes",
-      qlplugindir:          "~/Library/QuickLook",
-      mdimporterdir:        "~/Library/Spotlight",
-      dictionarydir:        "~/Library/Dictionaries",
-      fontdir:              "~/Library/Fonts",
-      servicedir:           "~/Library/Services",
-      input_methoddir:      "~/Library/Input Methods",
-      internet_plugindir:   "~/Library/Internet Plug-Ins",
-      audio_unit_plugindir: "~/Library/Audio/Plug-Ins/Components",
-      vst_plugindir:        "~/Library/Audio/Plug-Ins/VST",
-      vst3_plugindir:       "~/Library/Audio/Plug-Ins/VST3",
-      screen_saverdir:      "~/Library/Screen Savers",
-    }.freeze
+    DEFAULT_DIRS = T.let(
+      {
+        appdir:               "/Applications",
+        keyboard_layoutdir:   "/Library/Keyboard Layouts",
+        colorpickerdir:       "~/Library/ColorPickers",
+        prefpanedir:          "~/Library/PreferencePanes",
+        qlplugindir:          "~/Library/QuickLook",
+        mdimporterdir:        "~/Library/Spotlight",
+        dictionarydir:        "~/Library/Dictionaries",
+        fontdir:              "~/Library/Fonts",
+        servicedir:           "~/Library/Services",
+        input_methoddir:      "~/Library/Input Methods",
+        internet_plugindir:   "~/Library/Internet Plug-Ins",
+        audio_unit_plugindir: "~/Library/Audio/Plug-Ins/Components",
+        vst_plugindir:        "~/Library/Audio/Plug-Ins/VST",
+        vst3_plugindir:       "~/Library/Audio/Plug-Ins/VST3",
+        screen_saverdir:      "~/Library/Screen Savers",
+      }.freeze,
+      T::Hash[Symbol, String],
+    )
 
+    sig { returns(T::Hash[Symbol, String]) }
     def self.defaults
       {
-        languages: LazyObject.new { MacOS.languages },
+        languages: LazyObject.new { ::OS::Mac.languages },
       }.merge(DEFAULT_DIRS).freeze
     end
 
     sig { params(args: Homebrew::CLI::Args).returns(T.attached_class) }
     def self.from_args(args)
+      # FIXME: T.unsafe is a workaround for methods that are only defined when `cask_options`
+      # is invoked on the parser. (These could be captured by a DSL compiler instead.)
       args = T.unsafe(args)
       new(explicit: {
         appdir:               args.appdir,
@@ -72,8 +78,13 @@ module Cask
     end
 
     sig {
-      params(config: T::Enumerable[[T.any(String, Symbol), T.any(String, Pathname, T::Array[String])]])
-        .returns(T::Hash[Symbol, T.any(String, Pathname, T::Array[String])])
+      params(
+        config: T::Enumerable[
+          [T.any(String, Symbol), T.any(String, Pathname, T::Array[String])],
+        ],
+      ).returns(
+        T::Hash[Symbol, T.any(String, Pathname, T::Array[String])],
+      )
     }
     def self.canonicalize(config)
       config.to_h do |k, v|
@@ -104,9 +115,22 @@ module Cask
       ).void
     }
     def initialize(default: nil, env: nil, explicit: {}, ignore_invalid_keys: false)
-      @default = self.class.canonicalize(self.class.defaults.merge(default)) if default
-      @env = self.class.canonicalize(env) if env
-      @explicit = self.class.canonicalize(explicit)
+      if default
+        @default = T.let(
+          self.class.canonicalize(self.class.defaults.merge(default)),
+          T.nilable(T::Hash[Symbol, T.any(String, Pathname, T::Array[String])]),
+        )
+      end
+      if env
+        @env = T.let(
+          self.class.canonicalize(env),
+          T.nilable(T::Hash[Symbol, T.any(String, Pathname, T::Array[String])]),
+        )
+      end
+      @explicit = T.let(
+        self.class.canonicalize(explicit),
+        T::Hash[Symbol, T.any(String, Pathname, T::Array[String])],
+      )
 
       if ignore_invalid_keys
         @env&.delete_if { |key, _| self.class.defaults.keys.exclude?(key) }
@@ -144,12 +168,27 @@ module Cask
 
     sig { returns(Pathname) }
     def binarydir
-      @binarydir ||= HOMEBREW_PREFIX/"bin"
+      @binarydir ||= T.let(HOMEBREW_PREFIX/"bin", T.nilable(Pathname))
     end
 
     sig { returns(Pathname) }
     def manpagedir
-      @manpagedir ||= HOMEBREW_PREFIX/"share/man"
+      @manpagedir ||= T.let(HOMEBREW_PREFIX/"share/man", T.nilable(Pathname))
+    end
+
+    sig { returns(Pathname) }
+    def bash_completion
+      @bash_completion ||= T.let(HOMEBREW_PREFIX/"etc/bash_completion.d", T.nilable(Pathname))
+    end
+
+    sig { returns(Pathname) }
+    def zsh_completion
+      @zsh_completion ||= T.let(HOMEBREW_PREFIX/"share/zsh/site-functions", T.nilable(Pathname))
+    end
+
+    sig { returns(Pathname) }
+    def fish_completion
+      @fish_completion ||= T.let(HOMEBREW_PREFIX/"share/fish/vendor_completions.d", T.nilable(Pathname))
     end
 
     sig { returns(T::Array[String]) }
@@ -167,6 +206,7 @@ module Cask
       end
     end
 
+    sig { params(languages: T::Array[String]).void }
     def languages=(languages)
       explicit[:languages] = languages
     end
@@ -188,23 +228,6 @@ module Cask
       self.class.new(explicit: other.explicit.merge(explicit))
     end
 
-    # Get explicit configuration as a string.
-    #
-    # @api internal
-    #
-    # TODO: This is only used by `homebrew/bundle`, so move it there.
-    sig { returns(String) }
-    def explicit_s
-      explicit.map do |key, value|
-        # inverse of #env - converts :languages config key back to --language flag
-        if key == :languages
-          key = "language"
-          value = T.cast(explicit.fetch(:languages, []), T::Array[String]).join(",")
-        end
-        "#{key}: \"#{value.to_s.sub(/^#{Dir.home}/, "~")}\""
-      end.join(", ")
-    end
-
     sig { params(options: T.untyped).returns(String) }
     def to_json(*options)
       {
@@ -215,3 +238,5 @@ module Cask
     end
   end
 end
+
+require "extend/os/cask/config"

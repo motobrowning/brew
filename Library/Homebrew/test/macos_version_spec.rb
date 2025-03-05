@@ -7,9 +7,22 @@ RSpec.describe MacOSVersion do
   let(:big_sur_major) { described_class.new("11.0") }
   let(:big_sur_update) { described_class.new("11.1") }
 
+  describe ".kernel_major_version" do
+    it "returns the kernel major version" do
+      expect(described_class.kernel_major_version(version)).to eq "18"
+      expect(described_class.kernel_major_version(big_sur_major)).to eq "20"
+      expect(described_class.kernel_major_version(big_sur_update)).to eq "20"
+    end
+
+    it "matches the major version returned by OS.kernel_version", :needs_macos do
+      expect(described_class.kernel_major_version(OS::Mac.version)).to eq OS.kernel_version.major
+    end
+  end
+
   specify "comparison with Symbol" do
     expect(version).to be > :high_sierra
     expect(version).to eq :mojave
+    # We're explicitly testing the `===` operator results here.
     expect(version).to be === :mojave # rubocop:disable Style/CaseEquality
     expect(version).to be < :catalina
   end
@@ -22,6 +35,7 @@ RSpec.describe MacOSVersion do
   specify "comparison with String" do
     expect(version).to be > "10.3"
     expect(version).to eq "10.14"
+    # We're explicitly testing the `===` operator results here.
     expect(version).to be === "10.14" # rubocop:disable Style/CaseEquality
     expect(version).to be < "10.15"
   end
@@ -29,6 +43,7 @@ RSpec.describe MacOSVersion do
   specify "comparison with Version" do
     expect(version).to be > Version.new("10.3")
     expect(version).to eq Version.new("10.14")
+    # We're explicitly testing the `===` operator results here.
     expect(version).to be === Version.new("10.14") # rubocop:disable Style/CaseEquality
     expect(version).to be < Version.new("10.15")
   end

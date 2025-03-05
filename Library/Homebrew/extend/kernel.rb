@@ -8,7 +8,15 @@ module Kernel
   def require?(path)
     return false if path.nil?
 
-    require path
+    if defined?(Warnings)
+      # Work around require warning when done repeatedly:
+      # https://bugs.ruby-lang.org/issues/21091
+      Warnings.ignore(/already initialized constant/, /previous definition of/) do
+        require path
+      end
+    else
+      require path
+    end
     true
   rescue LoadError => e
     # we should raise on syntax errors but not if the file doesn't exist.
@@ -285,8 +293,8 @@ module Kernel
     Homebrew._system(cmd, *args) do
       # Redirect output streams to `/dev/null` instead of closing as some programs
       # will fail to execute if they can't write to an open stream.
-      $stdout.reopen("/dev/null")
-      $stderr.reopen("/dev/null")
+      $stdout.reopen(File::NULL)
+      $stderr.reopen(File::NULL)
     end
   end
 

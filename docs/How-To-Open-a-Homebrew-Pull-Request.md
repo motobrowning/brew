@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # How to Open a Homebrew Pull Request
 
 The following commands are used by Homebrew contributors to set up a fork of Homebrew's Git repository on GitHub, create a new branch and create a GitHub pull request ("PR") for the changes in that branch.
@@ -34,7 +38,7 @@ The type of change you want to make influences which of Homebrew's main reposito
 
 ### Formulae-related pull request
 
-Before creating a new formulae, please read [Acceptable Formulae](https://docs.brew.sh/Acceptable-Formulae).
+Before creating a new formula, please read [Acceptable Formulae](https://docs.brew.sh/Acceptable-Formulae).
 
 1. [Fork the Homebrew/homebrew-core repository on GitHub](https://github.com/Homebrew/homebrew-core/fork).
    * This creates a personal remote repository that you can push to. This is needed because only Homebrew maintainers have push access to the main repositories.

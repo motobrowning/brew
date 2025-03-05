@@ -10,10 +10,14 @@ if ENV["HOMEBREW_TESTS_COVERAGE"]
   ]
   SimpleCov.formatters = SimpleCov::Formatter::MultiFormatter.new(formatters)
 
-  if RUBY_PLATFORM[/darwin/] && ENV["TEST_ENV_NUMBER"]
+  # Needed for outputting coverage reporting only once for parallel_tests.
+  # Otherwise, "Coverage report generated" will get spammed for each process.
+  if ENV["TEST_ENV_NUMBER"]
     SimpleCov.at_exit do
       result = SimpleCov.result
-      result.format! if ParallelTests.number_of_running_processes <= 1
+      # `SimpleCov.result` calls `ParallelTests.wait_for_other_processes_to_finish`
+      # internally for you on the last process.
+      result.format! if ParallelTests.last_process?
     end
   end
 end
@@ -59,6 +63,7 @@ TEST_DIRECTORIES = [
   HOMEBREW_LOCKS,
   HOMEBREW_LOGS,
   HOMEBREW_TEMP,
+  HOMEBREW_ALIASES,
 ].freeze
 
 # Make `instance_double` and `class_double`
@@ -87,9 +92,9 @@ RSpec.configure do |config|
   # Use rspec-retry to handle flaky tests.
   config.default_sleep_interval = 1
 
-  # Don't want the nicer default retry behaviour when using BuildPulse to
+  # Don't want the nicer default retry behaviour when using CodeCov to
   # identify flaky tests.
-  config.default_retry_count = 2 unless ENV["BUILDPULSE"]
+  config.default_retry_count = 2 unless ENV["CODECOV_TOKEN"]
 
   config.expect_with :rspec do |expectations|
     # This option will default to `true` in RSpec 4. It makes the `description`
@@ -118,9 +123,9 @@ RSpec.configure do |config|
   config.around(:each, :needs_network) do |example|
     example.metadata[:timeout] ||= 120
 
-    # Don't want the nicer default retry behaviour when using BuildPulse to
+    # Don't want the nicer default retry behaviour when using CodeCov to
     # identify flaky tests.
-    example.metadata[:retry] ||= 4 unless ENV["BUILDPULSE"]
+    example.metadata[:retry] ||= 4 unless ENV["CODECOV_TOKEN"]
 
     example.metadata[:retry_wait] ||= 2
     example.metadata[:exponential_backoff] ||= true
@@ -275,7 +280,6 @@ RSpec.configure do |config|
         *Keg.must_exist_subdirectories,
         HOMEBREW_LINKED_KEGS,
         HOMEBREW_PINNED_KEGS,
-        HOMEBREW_PREFIX/"var",
         HOMEBREW_PREFIX/"Caskroom",
         HOMEBREW_PREFIX/"Frameworks",
         HOMEBREW_LIBRARY/"Taps/homebrew/homebrew-cask",

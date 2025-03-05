@@ -1,7 +1,6 @@
 # typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
-require "attrable"
 require "bundle_version"
 require "cask/cask_loader"
 require "cask/config"
@@ -15,7 +14,6 @@ module Cask
   # An instance of a cask.
   class Cask
     extend Forwardable
-    extend Attrable
     extend APIHashable
     include Metadata
 
@@ -31,8 +29,6 @@ module Cask
 
     attr_reader :sourcefile_path, :source, :default_config, :loader
     attr_accessor :download, :allow_reassignment
-
-    attr_predicate :loaded_from_api?
 
     def self.all(eval_all: false)
       if !eval_all && !Homebrew::EnvConfig.eval_all?
@@ -92,6 +88,9 @@ module Cask
       end
     end
 
+    sig { returns(T::Boolean) }
+    def loaded_from_api? = @loaded_from_api
+
     # An old name for the cask.
     sig { returns(T::Array[String]) }
     def old_tokens
@@ -114,12 +113,11 @@ module Cask
       return unless @block
 
       @dsl.instance_eval(&@block)
+      @dsl.add_implicit_macos_dependency
       @dsl.language_eval
     end
 
-    ::Cask::DSL::DSL_METHODS.each do |method_name|
-      define_method(method_name) { |*args, &block| @dsl.send(method_name, *args, &block) }
-    end
+    def_delegators :@dsl, *::Cask::DSL::DSL_METHODS
 
     sig { params(caskroom_path: Pathname).returns(T::Array[[String, String]]) }
     def timestamped_versions(caskroom_path: self.caskroom_path)
@@ -173,8 +171,8 @@ module Cask
     sig { returns(T.nilable(Time)) }
     def install_time
       # <caskroom_path>/.metadata/<version>/<timestamp>/Casks/<token>.{rb,json} -> <timestamp>
-      time = installed_caskfile&.dirname&.dirname&.basename&.to_s
-      Time.strptime(time, Metadata::TIMESTAMP_FORMAT) if time
+      caskfile = installed_caskfile
+      Time.strptime(caskfile.dirname.dirname.basename.to_s, Metadata::TIMESTAMP_FORMAT) if caskfile
     end
 
     sig { returns(T.nilable(Pathname)) }
@@ -363,96 +361,52 @@ module Cask
 
     def to_h
       {
-        "token"                => token,
-        "full_token"           => full_name,
-        "old_tokens"           => old_tokens,
-        "tap"                  => tap&.name,
-        "name"                 => name,
-        "desc"                 => desc,
-        "homepage"             => homepage,
-        "url"                  => url,
-        "url_specs"            => url_specs,
-        "version"              => version,
-        "installed"            => installed_version,
-        "installed_time"       => install_time&.to_i,
-        "bundle_version"       => bundle_long_version,
-        "bundle_short_version" => bundle_short_version,
-        "outdated"             => outdated?,
-        "sha256"               => sha256,
-        "artifacts"            => artifacts_list,
-        "caveats"              => (caveats unless caveats.empty?),
-        "depends_on"           => depends_on,
-        "conflicts_with"       => conflicts_with,
-        "container"            => container&.pairs,
-        "auto_updates"         => auto_updates,
-        "deprecated"           => deprecated?,
-        "deprecation_date"     => deprecation_date,
-        "deprecation_reason"   => deprecation_reason,
-        "disabled"             => disabled?,
-        "disable_date"         => disable_date,
-        "disable_reason"       => disable_reason,
-        "tap_git_head"         => tap_git_head,
-        "languages"            => languages,
-        "ruby_source_path"     => ruby_source_path,
-        "ruby_source_checksum" => ruby_source_checksum,
+        "token"                   => token,
+        "full_token"              => full_name,
+        "old_tokens"              => old_tokens,
+        "tap"                     => tap&.name,
+        "name"                    => name,
+        "desc"                    => desc,
+        "homepage"                => homepage,
+        "url"                     => url,
+        "url_specs"               => url_specs,
+        "version"                 => version,
+        "installed"               => installed_version,
+        "installed_time"          => install_time&.to_i,
+        "bundle_version"          => bundle_long_version,
+        "bundle_short_version"    => bundle_short_version,
+        "outdated"                => outdated?,
+        "sha256"                  => sha256,
+        "artifacts"               => artifacts_list,
+        "caveats"                 => (caveats unless caveats.empty?),
+        "depends_on"              => depends_on,
+        "conflicts_with"          => conflicts_with,
+        "container"               => container&.pairs,
+        "auto_updates"            => auto_updates,
+        "deprecated"              => deprecated?,
+        "deprecation_date"        => deprecation_date,
+        "deprecation_reason"      => deprecation_reason,
+        "deprecation_replacement" => deprecation_replacement,
+        "disabled"                => disabled?,
+        "disable_date"            => disable_date,
+        "disable_reason"          => disable_reason,
+        "disable_replacement"     => disable_replacement,
+        "tap_git_head"            => tap_git_head,
+        "languages"               => languages,
+        "ruby_source_path"        => ruby_source_path,
+        "ruby_source_checksum"    => ruby_source_checksum,
       }
-    end
-
-    def to_internal_api_hash
-      api_hash = {
-        "token"              => token,
-        "name"               => name,
-        "desc"               => desc,
-        "homepage"           => homepage,
-        "url"                => url,
-        "version"            => version,
-        "sha256"             => sha256,
-        "artifacts"          => artifacts_list(compact: true),
-        "ruby_source_path"   => ruby_source_path,
-        "ruby_source_sha256" => ruby_source_checksum.fetch(:sha256),
-      }
-
-      if deprecation_date
-        api_hash["deprecation_date"] = deprecation_date
-        api_hash["deprecation_reason"] = deprecation_reason
-      end
-
-      if disable_date
-        api_hash["disable_date"] = disable_date
-        api_hash["disable_reason"] = disable_reason
-      end
-
-      if (url_specs_hash = url_specs).present?
-        api_hash["url_specs"] = url_specs_hash
-      end
-
-      api_hash["caskfile_only"] = true if caskfile_only?
-      api_hash["conflicts_with"] = conflicts_with if conflicts_with.present?
-      api_hash["depends_on"] = depends_on if depends_on.present?
-      api_hash["container"] = container.pairs if container
-      api_hash["caveats"] = caveats if caveats.present?
-      api_hash["auto_updates"] = auto_updates if auto_updates
-      api_hash["languages"] = languages if languages.present?
-
-      api_hash
     end
 
     HASH_KEYS_TO_SKIP = %w[outdated installed versions].freeze
     private_constant :HASH_KEYS_TO_SKIP
 
-    def to_hash_with_variations(hash_method: :to_h)
-      case hash_method
-      when :to_h
-        if loaded_from_api? && !Homebrew::EnvConfig.no_install_from_api?
-          return api_to_local_hash(Homebrew::API::Cask.all_casks[token].dup)
-        end
-      when :to_internal_api_hash
-        raise ArgumentError, "API Hash must be generated from Ruby source files" if loaded_from_api?
-      else
-        raise ArgumentError, "Unknown hash method #{hash_method.inspect}"
+    def to_hash_with_variations
+      if loaded_from_api? && !Homebrew::EnvConfig.no_install_from_api?
+        return api_to_local_hash(Homebrew::API::Cask.all_casks[token].dup)
       end
 
-      hash = public_send(hash_method)
+      hash = to_h
       variations = {}
 
       if @dsl.on_system_blocks_exist?
@@ -467,7 +421,7 @@ module Cask
             Homebrew::SimulateSystem.with(os:, arch:) do
               refresh
 
-              public_send(hash_method).each do |key, value|
+              to_h.each do |key, value|
                 next if HASH_KEYS_TO_SKIP.include? key
                 next if value.to_s == hash[key].to_s
 
@@ -481,11 +435,11 @@ module Cask
         end
       end
 
-      hash["variations"] = variations if hash_method != :to_internal_api_hash || variations.present?
+      hash["variations"] = variations
       hash
     end
 
-    def artifacts_list(compact: false, uninstall_only: false)
+    def artifacts_list(uninstall_only: false)
       artifacts.filter_map do |artifact|
         case artifact
         when Artifact::AbstractFlightBlock
@@ -494,8 +448,7 @@ module Cask
           next if uninstall_only && !uninstall_flight_block
 
           # Only indicate whether this block is used as we don't load it from the API
-          # We can skip this entirely once we move to internal JSON v3.
-          { artifact.summarize.to_sym => nil } unless compact
+          { artifact.summarize.to_sym => nil }
         else
           zap_artifact = artifact.is_a?(Artifact::Zap)
           uninstall_artifact = artifact.respond_to?(:uninstall_phase) || artifact.respond_to?(:post_uninstall_phase)
@@ -511,7 +464,7 @@ module Cask
     sig { returns(T.nilable(Homebrew::BundleVersion)) }
     def bundle_version
       @bundle_version ||= if (bundle = artifacts.find { |a| a.is_a?(Artifact::App) }&.target) &&
-                             (plist = Pathname("#{bundle}/Contents/Info.plist")) && plist.exist?
+                             (plist = Pathname("#{bundle}/Contents/Info.plist")) && plist.exist? && plist.readable?
         Homebrew::BundleVersion.from_info_plist(plist)
       end
     end

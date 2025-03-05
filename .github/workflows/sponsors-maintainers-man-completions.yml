@@ -27,7 +27,7 @@ defaults:
 
 jobs:
   updates:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     if: github.repository == 'Homebrew/brew'
     steps:
       - name: Setup Homebrew
@@ -46,10 +46,11 @@ jobs:
       - name: Set up commit signing
         uses: Homebrew/actions/setup-commit-signing@master
         with:
-          signing_key: ${{ secrets.BREWTESTBOT_GPG_SIGNING_SUBKEY }}
+          ssh: true
+          signing_key: ${{ secrets.BREWTESTBOT_SSH_SIGNING_KEY }}
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -70,13 +71,13 @@ jobs:
 
           if git ls-remote --exit-code --heads origin "${BRANCH}"
           then
-            git checkout "${BRANCH}"
+            git checkout --force "${BRANCH}"
             git checkout "README.md" \
                          "docs/Manpage.md" \
                          "manpages/brew.1" \
                          "completions"
           else
-            git checkout --no-track -B "${BRANCH}" origin/master
+            git checkout --force --no-track -B "${BRANCH}" origin/master
           fi
 
           if brew update-sponsors
@@ -120,7 +121,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_GITHUB_PUBLIC_REPO_TOKEN }}
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_BREW_UPDATE_SPONSORS_MAINTAINERS_TOKEN }}
-          HOMEBREW_GPG_PASSPHRASE: ${{ secrets.BREWTESTBOT_GPG_SIGNING_SUBKEY_PASSPHRASE }}
         working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
 
       - name: Push commits

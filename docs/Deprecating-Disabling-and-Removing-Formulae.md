@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Deprecating, Disabling and Removing Formulae
 
 There are many reasons why formulae may be deprecated, disabled or removed. This document explains the differences between each method as well as explaining when one method should be used over another.
@@ -37,6 +41,12 @@ The `date` parameter should be set to the date that the deprecation period shoul
 
 The `because` parameter can be a preset reason (using a symbol) or a custom reason. See the [Deprecate and Disable Reasons](#deprecate-and-disable-reasons) section below for more details about the `because` parameter.
 
+An optional `replacement` parameter may also be specified to suggest a replacement formula or cask to the user. The value of the parameter is a string.
+
+```ruby
+deprecate! date: "YYYY-MM-DD", because: :reason, replacement: "foo"
+```
+
 ## Disabling
 
 If a user attempts to install a disabled formula, they will be shown an error message and the install will fail.
@@ -63,6 +73,12 @@ disable! date: "YYYY-MM-DD", because: :reason
 The `date` parameter should be set to the date that the reason for disabling came into effect. If there is no clear date but the formula needs to be disabled, use today's date. If the `date` parameter is set to a date in the future, the formula will be deprecated until that date (on which the formula will become disabled).
 
 The `because` parameter can be a preset reason (using a symbol) or a custom reason. See the [Deprecate and Disable Reasons](#deprecate-and-disable-reasons) section below for more details about the `because` parameter.
+
+Similar to deprecated formulae, an optional `replacement` parameter may also be specified for disabled formulae to suggest a replacement formula or cask to the user. The value of the parameter is a string.
+
+```ruby
+disable! date: "YYYY-MM-DD", because: :reason, replacement: "foo"
+```
 
 ## Removal
 

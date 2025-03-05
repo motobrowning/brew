@@ -1,4 +1,4 @@
-# typed: true # rubocop:todo Sorbet/StrictSigil
+# typed: strict
 # frozen_string_literal: true
 
 require "utils/curl"
@@ -10,34 +10,40 @@ module Repology
   MAX_PAGINATION = 15
   private_constant :MAX_PAGINATION
 
+  sig { params(last_package_in_response: T.nilable(String), repository: String).returns(T::Hash[String, T.untyped]) }
   def self.query_api(last_package_in_response = "", repository:)
     last_package_in_response += "/" if last_package_in_response.present?
     url = "https://repology.org/api/v1/projects/#{last_package_in_response}?inrepo=#{repository}&outdated=1"
 
-    output, errors, = Utils::Curl.curl_output(url.to_s, "--silent",
-                                              use_homebrew_curl: !Utils::Curl.curl_supports_tls13?)
-    JSON.parse(output)
+    result = Utils::Curl.curl_output(
+      "--silent", url.to_s,
+      use_homebrew_curl: !Utils::Curl.curl_supports_tls13?
+    )
+    JSON.parse(result.stdout)
   rescue
     if Homebrew::EnvConfig.developer?
-      $stderr.puts errors
+      $stderr.puts result&.stderr
     else
-      odebug errors
+      odebug result&.stderr
     end
 
     raise
   end
 
+  sig { params(name: String, repository: String).returns(T.nilable(T::Hash[String, T.untyped])) }
   def self.single_package_query(name, repository:)
     url = "https://repology.org/api/v1/project/#{name}"
 
-    output, errors, = Utils::Curl.curl_output("--location", "--silent", url.to_s,
-                                              use_homebrew_curl: !Utils::Curl.curl_supports_tls13?)
+    result = Utils::Curl.curl_output(
+      "--location", "--silent", url.to_s,
+      use_homebrew_curl: !Utils::Curl.curl_supports_tls13?
+    )
 
-    data = JSON.parse(output)
+    data = JSON.parse(result.stdout)
     { name => data }
   rescue => e
     require "utils/backtrace"
-    error_output = [errors, "#{e.class}: #{e}", Utils::Backtrace.clean(e)].compact
+    error_output = [result&.stderr, "#{e.class}: #{e}", Utils::Backtrace.clean(e)].compact
     if Homebrew::EnvConfig.developer?
       $stderr.puts(*error_output)
     else
@@ -47,6 +53,13 @@ module Repology
     nil
   end
 
+  sig {
+    params(
+      limit:        T.nilable(Integer),
+      last_package: T.nilable(String),
+      repository:   String,
+    ).returns(T::Hash[String, T.untyped])
+  }
   def self.parse_api_response(limit = nil, last_package = "", repository:)
     package_term = case repository
     when HOMEBREW_CORE
@@ -80,6 +93,7 @@ module Repology
     outdated_packages.sort.to_h
   end
 
+  sig { params(repositories: T::Array[String]).returns(T.any(String, Version)) }
   def self.latest_version(repositories)
     # The status is "unique" when the package is present only in Homebrew, so
     # Repology has no way of knowing if the package is up-to-date.
@@ -97,6 +111,6 @@ module Repology
     # scheme
     return "no latest version" if latest_version.blank?
 
-    Version.new(latest_version["version"])
+    Version.new(T.must(latest_version["version"]))
   end
 end

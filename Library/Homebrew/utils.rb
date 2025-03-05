@@ -30,6 +30,7 @@ module Homebrew
     _system(cmd, *args, **options)
   end
 
+  # `Module` and `Regexp` are global variables used as types here so they don't need to be imported
   # rubocop:disable Style/GlobalVars
   sig { params(the_module: Module, pattern: Regexp).void }
   def self.inject_dump_stats!(the_module, pattern)
@@ -96,8 +97,11 @@ module Utils
   # See also #deconstantize.
   # @see https://github.com/rails/rails/blob/b0dd7c7/activesupport/lib/active_support/inflector/methods.rb#L230-L245
   #   `ActiveSupport::Inflector.demodulize`
-  sig { params(path: String).returns(String) }
+  # @raise [ArgumentError] if the provided path is nil
+  sig { params(path: T.nilable(String)).returns(String) }
   def self.demodulize(path)
+    raise ArgumentError, "No constant path provided" if path.nil?
+
     if (i = path.rindex("::"))
       T.must(path[(i + 2)..])
     else

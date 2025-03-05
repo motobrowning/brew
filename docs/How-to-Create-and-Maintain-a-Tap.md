@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # How to Create and Maintain a Tap
 
 [Taps](Taps.md) are external sources of Homebrew formulae, casks and/or external commands. They can be created by anyone to provide their own formulae, casks and/or external commands to any Homebrew user.
@@ -46,7 +50,7 @@ Unlike formulae, casks must have globally unique names to avoid clashes. This ca
 
 You can provide your tap users with custom `brew` commands by adding them in a `cmd` subdirectory. [Read more on external commands](External-Commands.md).
 
-See [homebrew/aliases](https://github.com/Homebrew/homebrew-aliases) for an example of a tap with external commands.
+See [Homebrew/test-bot](https://github.com/Homebrew/homebrew-test-bot) for an example of a tap with external commands.
 
 ## Upstream taps
 

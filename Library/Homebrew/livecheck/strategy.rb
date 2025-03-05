@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "utils/curl"
+require "livecheck/options"
 
 module Homebrew
   module Livecheck
@@ -11,8 +12,6 @@ module Homebrew
     # for finding new software versions at a given source.
     module Strategy
       extend Utils::Curl
-
-      module_function
 
       # {Strategy} priorities informally range from 1 to 10, where 10 is the
       # highest priority. 5 is the default priority because it's roughly in
@@ -98,7 +97,7 @@ module Homebrew
       # loaded, otherwise livecheck won't be able to use them.
       # @return [Hash]
       sig { returns(T::Hash[Symbol, T.untyped]) }
-      def strategies
+      def self.strategies
         @strategies ||= T.let(Strategy.constants.sort.each_with_object({}) do |const_symbol, hash|
           constant = Strategy.const_get(const_symbol)
           next unless constant.is_a?(Class)
@@ -116,7 +115,7 @@ module Homebrew
       #   `Symbol` (e.g. `:page_match`)
       # @return [Class, nil]
       sig { params(symbol: T.nilable(Symbol)).returns(T.untyped) }
-      def from_symbol(symbol)
+      def self.from_symbol(symbol)
         strategies[symbol] if symbol.present?
       end
 
@@ -138,7 +137,7 @@ module Homebrew
           block_provided:     T::Boolean,
         ).returns(T::Array[T.untyped])
       }
-      def from_url(url, livecheck_strategy: nil, regex_provided: false, block_provided: false)
+      def self.from_url(url, livecheck_strategy: nil, regex_provided: false, block_provided: false)
         usable_strategies = strategies.select do |strategy_symbol, strategy|
           if strategy == PageMatch
             # Only treat the strategy as usable if the `livecheck` block
@@ -166,25 +165,57 @@ module Homebrew
         end
       end
 
+      # Creates `curl` `--data` or `--json` arguments (for `POST` requests`)
+      # from related `livecheck` block `url` options.
+      #
+      # @param post_form [Hash, nil] data to encode using `URI::encode_www_form`
+      # @param post_json [Hash, nil] data to encode using `JSON::generate`
+      # @return [Array]
+      sig {
+        params(
+          post_form: T.nilable(T::Hash[Symbol, String]),
+          post_json: T.nilable(T::Hash[Symbol, String]),
+        ).returns(T::Array[String])
+      }
+      def self.post_args(post_form: nil, post_json: nil)
+        if post_form.present?
+          require "uri"
+          ["--data", URI.encode_www_form(post_form)]
+        elsif post_json.present?
+          require "json"
+          ["--json", JSON.generate(post_json)]
+        else
+          []
+        end
+      end
+
       # Collects HTTP response headers, starting with the provided URL.
       # Redirections will be followed and all the response headers are
       # collected into an array of hashes.
       #
       # @param url [String] the URL to fetch
-      # @param homebrew_curl [Boolean] whether to use brewed curl with the URL
+      # @param options [Options] options to modify behavior
       # @return [Array]
-      sig { params(url: String, homebrew_curl: T::Boolean).returns(T::Array[T::Hash[String, String]]) }
-      def self.page_headers(url, homebrew_curl: false)
+      sig { params(url: String, options: Options).returns(T::Array[T::Hash[String, String]]) }
+      def self.page_headers(url, options: Options.new)
         headers = []
+
+        if options.post_form || options.post_json
+          curl_post_args = ["--request", "POST", *post_args(
+            post_form: options.post_form,
+            post_json: options.post_json,
+          )]
+        end
 
         [:default, :browser].each do |user_agent|
           begin
             parsed_output = curl_headers(
+              *curl_post_args,
               "--max-redirs",
               MAX_REDIRECTIONS.to_s,
               url,
               wanted_headers:    ["location", "content-disposition"],
-              use_homebrew_curl: homebrew_curl,
+              use_homebrew_curl: options.homebrew_curl || false,
               user_agent:,
               **DEFAULT_CURL_OPTIONS,
             )
@@ -205,16 +236,26 @@ module Homebrew
       # array with the error message instead.
       #
       # @param url [String] the URL of the content to check
-      # @param homebrew_curl [Boolean] whether to use brewed curl with the URL
+      # @param options [Options] options to modify behavior
       # @return [Hash]
-      sig { params(url: String, homebrew_curl: T::Boolean).returns(T::Hash[Symbol, T.untyped]) }
-      def self.page_content(url, homebrew_curl: false)
+      sig { params(url: String, options: Options).returns(T::Hash[Symbol, T.untyped]) }
+      def self.page_content(url, options: Options.new)
+        if options.post_form || options.post_json
+          curl_post_args = ["--request", "POST", *post_args(
+            post_form: options.post_form,
+            post_json: options.post_json,
+          )]
+        end
+
         stderr = T.let(nil, T.nilable(String))
         [:default, :browser].each do |user_agent|
           stdout, stderr, status = curl_output(
+            *curl_post_args,
             *PAGE_CONTENT_CURL_ARGS, url,
             **DEFAULT_CURL_OPTIONS,
-            use_homebrew_curl: homebrew_curl || !curl_supports_fail_with_body?,
+            use_homebrew_curl: options.homebrew_curl ||
+                               !curl_supports_fail_with_body? ||
+                               false,
             user_agent:
           )
           next unless status.success?

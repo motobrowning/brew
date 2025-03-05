@@ -21,14 +21,14 @@ jobs:
   ubuntu:
     if: github.repository_owner == 'Homebrew'
     name: docker (Ubuntu ${{ matrix.version }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         version: ["18.04", "20.04", "22.04", "24.04"]
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -37,7 +37,9 @@ jobs:
         run: git fetch origin master
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          cache-binary: false
 
       - name: Determine build attributes
         id: attributes
@@ -86,7 +88,7 @@ jobs:
             )
           fi
           if [[ "${{ matrix.version }}" == "18.04" ]]; then
-            # odeprecated: remove this in Homebrew >=4.4
+            # odeprecated: remove this in Homebrew >=4.5
             echo "The homebrew/ubuntu18.04 image is deprecated and will soon be retired. Use homebrew/ubuntu22.04 or homebrew/ubuntu24.04 or homebrew/ubuntu20.04 or homebrew/brew." > .docker-deprecate
           fi
 
@@ -102,23 +104,29 @@ jobs:
             fi
           } | tee -a "${GITHUB_OUTPUT}"
 
+      - name: Log in to GitHub Packages (github-actions[bot])
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: github-actions[bot]
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Docker image
-        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           load: true
           tags: brew
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=ghcr.io/homebrew/ubuntu${{ matrix.version }}:cache
           build-args: version=${{ matrix.version }}
           labels: ${{ steps.attributes.outputs.labels }}
 
       - name: Run brew test-bot --only-setup
         run: docker run --rm brew brew test-bot --only-setup
 
-      - name: Log in to GitHub Packages
+      - name: Log in to GitHub Packages (BrewTestBot)
         if: steps.attributes.outputs.push == 'true'
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
           username: BrewTestBot
@@ -126,19 +134,19 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.attributes.outputs.push == 'true'
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           username: brewtestbot
           password: ${{ secrets.HOMEBREW_BREW_DOCKER_TOKEN }}
 
       - name: Deploy the tagged Docker image
         if: steps.attributes.outputs.push == 'true'
-        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           push: true
           tags: ${{ steps.attributes.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=ghcr.io/homebrew/ubuntu${{ matrix.version }}:cache
+          cache-to: type=registry,ref=ghcr.io/homebrew/ubuntu${{ matrix.version }}:cache,mode=max
           build-args: version=${{ matrix.version }}
           labels: ${{ steps.attributes.outputs.labels }}

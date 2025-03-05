@@ -74,7 +74,6 @@ module Cask
         data: nil,
         only_path: nil
       )
-
         @uri = URI(uri)
 
         header = Array(header) unless header.nil?
@@ -100,21 +99,26 @@ module Cask
 
     class BlockDSL
       # Allow accessing the URL associated with page contents.
-      module PageWithURL
+      class PageWithURL < SimpleDelegator
         # Get the URL of the fetched page.
         #
         # ### Example
         #
         # ```ruby
         # url "https://example.org/download" do |page|
-        #   file = page[/href="([^"]+.dmg)"/, 1]
-        #   URL.join(page.url, file)
+        #   file_path = page[/href="([^"]+\.dmg)"/, 1]
+        #   URI.join(page.url, file_path)
         # end
         # ```
         #
         # @api public
         sig { returns(URI::Generic) }
         attr_accessor :url
+
+        def initialize(str, url)
+          super(str)
+          @url = url
+        end
       end
 
       sig {
@@ -136,13 +140,10 @@ module Cask
       sig { returns(T.any(T.any(URI::Generic, String), [T.any(URI::Generic, String), Hash])) }
       def call
         if @uri
-          result = ::Utils::Curl.curl_output("--fail", "--silent", "--location", @uri)
+          result = ::Utils::Curl.curl_output("--fail", "--silent", "--location", @uri.to_s)
           result.assert_success!
 
-          page = result.stdout
-          page.extend PageWithURL
-          page.url = URI(@uri)
-
+          page = PageWithURL.new(result.stdout, URI(@uri))
           instance_exec(page, &@block)
         else
           instance_exec(&@block)
@@ -266,6 +267,7 @@ module Cask
 
       return false unless interpolated_url
 
+      interpolated_url = interpolated_url.gsub(/\#{\s*arch\s*}/, "")
       interpolated_url = interpolated_url.gsub(/\#{\s*version\s*\.major\s*}/, "") if ignore_major_version
 
       interpolated_url.exclude?('#{')

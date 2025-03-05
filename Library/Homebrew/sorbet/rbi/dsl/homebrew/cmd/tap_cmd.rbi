@@ -18,9 +18,12 @@ class Homebrew::Cmd::TapCmd::Args < Homebrew::CLI::Args
   def eval_all?; end
 
   sig { returns(T::Boolean) }
+  def f?; end
+
+  sig { returns(T::Boolean) }
   def force?; end
 
-  sig { returns(T.nilable(String)) }
+  sig { returns(T::Boolean) }
   def force_auto_update?; end
 
   sig { returns(T::Boolean) }

@@ -1,6 +1,8 @@
 # typed: strict
 # frozen_string_literal: true
 
+require "livecheck/strategic"
+
 module Homebrew
   module Livecheck
     module Strategy
@@ -14,6 +16,7 @@ module Homebrew
       # * `https://www.x.org/archive/individual/lib/libexample-1.2.3.tar.bz2`
       # * `https://ftp.x.org/archive/individual/lib/libexample-1.2.3.tar.bz2`
       # * `https://www.x.org/pub/individual/doc/example-1.2.3.tar.gz`
+      # * `https://xorg.freedesktop.org/archive/individual/util/example-1.2.3.tar.xz`
       #
       # The notable differences between URLs are as follows:
       #
@@ -38,6 +41,8 @@ module Homebrew
       #
       # @api public
       class Xorg
+        extend Strategic
+
         NICE_NAME = "X.Org"
 
         # A `Regexp` used in determining if the strategy applies to the URL and
@@ -50,8 +55,10 @@ module Homebrew
         # The `Regexp` used to determine if the strategy applies to the URL.
         URL_MATCH_REGEX = %r{
           ^https?://(?:[^/]+?\.)* # Scheme and any leading subdomains
-          (?:x\.org/(?:[^/]+/)*individual/(?:[^/]+/)*#{MODULE_REGEX.source.strip}
-          |freedesktop\.org/(?:archive|dist|software)/(?:[^/]+/)*#{MODULE_REGEX.source.strip})
+          (?:x\.org/(?:[^/]+/)*individual
+            |freedesktop\.org/(?:archive|dist|software)
+            |archive\.mesa3d\.org)
+          /(?:[^/]+/)*#{MODULE_REGEX.source.strip}
         }ix
 
         # Used to cache page content, so we don't fetch the same pages
@@ -62,7 +69,7 @@ module Homebrew
         #
         # @param url [String] the URL to match against
         # @return [Boolean]
-        sig { params(url: String).returns(T::Boolean) }
+        sig { override.params(url: String).returns(T::Boolean) }
         def self.match?(url)
           URL_MATCH_REGEX.match?(url)
         end
@@ -106,16 +113,17 @@ module Homebrew
         #
         # @param url [String] the URL of the content to check
         # @param regex [Regexp] a regex used for matching versions in content
+        # @param options [Options] options to modify behavior
         # @return [Hash]
         sig {
-          params(
-            url:    String,
-            regex:  T.nilable(Regexp),
-            unused: T.untyped,
-            block:  T.nilable(Proc),
-          ).returns(T::Hash[Symbol, T.untyped])
+          override(allow_incompatible: true).params(
+            url:     String,
+            regex:   T.nilable(Regexp),
+            options: Options,
+            block:   T.nilable(Proc),
+          ).returns(T::Hash[Symbol, T.anything])
         }
-        def self.find_versions(url:, regex: nil, **unused, &block)
+        def self.find_versions(url:, regex: nil, options: Options.new, &block)
           generated = generate_input_values(url)
           generated_url = generated[:url]
 
@@ -125,12 +133,12 @@ module Homebrew
             url:              generated_url,
             regex:            regex || generated[:regex],
             provided_content: cached_content,
-            **unused,
+            options:,
             &block
           )
 
           # Cache any new page content
-          @page_data[generated_url] = match_data[:content] if match_data[:content].present?
+          @page_data[generated_url] = match_data[:content] unless match_data[:content].empty?
 
           match_data
         end

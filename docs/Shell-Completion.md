@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # `brew` Shell Completion
 
 Homebrew comes with completion definitions for the `brew` command. Some packages also provide completion definitions for their own programs.
@@ -69,4 +73,16 @@ end
 if test -d (brew --prefix)"/share/fish/vendor_completions.d"
     set -p fish_complete_path (brew --prefix)/share/fish/vendor_completions.d
 end
+```
+
+## Configuring Completions in `pwsh`
+
+To make Homebrew's completions available in `pwsh` (PowerShell), you must source the definitions as part of your shell's startup. Add the following to your `$PROFILE`, for example: `~/.config/powershell/Microsoft.PowerShell_profile.ps1`:
+
+```pwsh
+if ((Get-Command brew) -and (Test-Path ($completions = "$(brew --prefix)/share/pwsh/completions"))) {
+  foreach ($f in Get-ChildItem -Path $completions -File) {
+    . $f
+  }
+}
 ```

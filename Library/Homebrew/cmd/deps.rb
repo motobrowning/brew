@@ -31,6 +31,8 @@ module Homebrew
                description: "Show the union of dependencies for multiple <formula>, instead of the intersection."
         switch "--full-name",
                description: "List dependencies by their full name."
+        switch "--include-implicit",
+               description: "Include implicit dependencies used to download and unpack source files."
         switch "--include-build",
                description: "Include `:build` dependencies for <formula>."
         switch "--include-optional",
@@ -102,6 +104,7 @@ module Homebrew
                                       !args.tree? &&
                                       !args.graph? &&
                                       !args.HEAD? &&
+                                      !args.include_implicit? &&
                                       !args.include_build? &&
                                       !args.include_test? &&
                                       !args.include_optional? &&
@@ -218,8 +221,8 @@ module Homebrew
         deps = dependency.runtime_dependencies if @use_runtime_dependencies
 
         if recursive
-          deps ||= recursive_includes(Dependency, dependency, includes, ignores)
-          reqs   = recursive_includes(Requirement, dependency, includes, ignores)
+          deps ||= recursive_dep_includes(dependency, includes, ignores)
+          reqs   = recursive_req_includes(dependency, includes, ignores)
         else
           deps ||= select_includes(dependency.deps, ignores, includes)
           reqs   = select_includes(dependency.requirements, ignores, includes)

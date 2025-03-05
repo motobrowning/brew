@@ -16,11 +16,13 @@ class AbstractTab
   # Check whether the formula or cask was installed as a dependency.
   #
   # @api internal
+  sig { returns(T.nilable(T::Boolean)) } # TODO: change this to always return a boolean
   attr_accessor :installed_as_dependency
 
   # Check whether the formula or cask was installed on request.
   #
   # @api internal
+  sig { returns(T.nilable(T::Boolean)) } # TODO: change this to always return a boolean
   attr_accessor :installed_on_request
 
   attr_accessor :homebrew_version, :tabfile, :loaded_from_api, :time, :arch, :source, :built_on
@@ -176,7 +178,7 @@ class Tab < AbstractTab
     tab.source ||= {}
 
     tab.tap = tab.tapped_from if !tab.tapped_from.nil? && tab.tapped_from != "path or URL"
-    tab.tap = "homebrew/core" if tab.tap == "mxcl/master" || tab.tap == "Homebrew/homebrew"
+    tab.tap = "homebrew/core" if ["mxcl/master", "Homebrew/homebrew"].include?(tab.tap)
 
     if tab.source["spec"].nil?
       version = PkgVersion.parse(File.basename(File.dirname(path)))

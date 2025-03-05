@@ -28,7 +28,7 @@ module OS
 
             if file.dylib?
               id = relocated_name_for(file.dylib_id, relocation)
-              modified = change_dylib_id(id, file)
+              modified = change_dylib_id(id, file) if id
               needs_codesigning ||= modified
             end
 
@@ -141,6 +141,9 @@ module OS
       end
 
       def dylib_id_for(file)
+        # Swift dylib IDs should be /usr/lib/swift
+        return file.dylib_id if file.dylib_id.start_with?("/usr/lib/swift/libswift")
+
         # The new dylib ID should have the same basename as the old dylib ID, not
         # the basename of the file itself.
         basename = File.basename(file.dylib_id)
@@ -148,6 +151,7 @@ module OS
         (opt_record/relative_dirname/basename).to_s
       end
 
+      sig { params(old_name: String, relocation: ::Keg::Relocation).returns(T.nilable(String)) }
       def relocated_name_for(old_name, relocation)
         old_prefix, new_prefix = relocation.replacement_pair_for(:prefix)
         old_cellar, new_cellar = relocation.replacement_pair_for(:cellar)
@@ -236,6 +240,7 @@ module OS
       private
 
       CELLAR_RX = %r{\A#{HOMEBREW_CELLAR}/(?<formula_name>[^/]+)/[^/]+}
+      private_constant :CELLAR_RX
 
       # Replace HOMEBREW_CELLAR references with HOMEBREW_PREFIX/opt references
       # if the Cellar reference is to a different keg.

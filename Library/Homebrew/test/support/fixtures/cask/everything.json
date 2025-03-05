@@ -1,9 +1,7 @@
 {
   "token": "everything",
   "full_token": "everything",
-  "old_tokens": [
-
-  ],
+  "old_tokens": [],
   "tap": "homebrew/cask",
   "name": [
     "Everything"
@@ -78,7 +76,12 @@
   "depends_on": {
     "cask": [
       "something"
-    ]
+    ],
+    "macos": {
+      ">=": [
+        "10.11"
+      ]
+    }
   },
   "conflicts_with": {
     "formula": [
@@ -92,9 +95,11 @@
   "deprecated": false,
   "deprecation_date": null,
   "deprecation_reason": null,
+  "deprecation_replacement": null,
   "disabled": false,
   "disable_date": null,
   "disable_reason": null,
+  "disable_replacement": null,
   "tap_git_head": "abcdef1234567890abcdef1234567890abcdef12",
   "languages": [
     "en",

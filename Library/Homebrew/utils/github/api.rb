@@ -135,15 +135,6 @@ module GitHub
       JSON::ParserError,
     ].freeze
 
-    sig { returns(T.nilable(String)) }
-    private_class_method def self.uid_home
-      require "etc"
-      Etc.getpwuid(Process.uid)&.dir
-    rescue ArgumentError
-      # Cover for misconfigured NSS setups
-      nil
-    end
-
     # Gets the token from the GitHub CLI for github.com.
     sig { returns(T.nilable(String)) }
     def self.github_cli_token
@@ -152,7 +143,7 @@ module GitHub
         # Avoid `Formula["gh"].opt_bin` so this method works even with `HOMEBREW_DISABLE_LOAD_FORMULA`.
         env = {
           "PATH" => PATH.new(HOMEBREW_PREFIX/"opt/gh/bin", ENV.fetch("PATH")),
-          "HOME" => uid_home,
+          "HOME" => Utils::UID.uid_home,
         }.compact
         gh_out, _, result = system_command "gh",
                                            args:         ["auth", "token", "--hostname", "github.com"],
@@ -173,7 +164,7 @@ module GitHub
         git_credential_out, _, result = system_command "git",
                                                        args:         ["credential-osxkeychain", "get"],
                                                        input:        ["protocol=https\n", "host=github.com\n"],
-                                                       env:          { "HOME" => uid_home }.compact,
+                                                       env:          { "HOME" => Utils::UID.uid_home }.compact,
                                                        print_stderr: false
         return unless result.success?
 
@@ -283,8 +274,8 @@ module GitHub
         args += ["--dump-header", T.must(headers_tmpfile.path)]
 
         require "utils/curl"
-        output, errors, status = Utils::Curl.curl_output("--location", url.to_s, *args, secrets: [token])
-        output, _, http_code = output.rpartition("\n")
+        result = Utils::Curl.curl_output("--location", url.to_s, *args, secrets: [token])
+        output, _, http_code = result.stdout.rpartition("\n")
         output, _, http_code = output.rpartition("\n") if http_code == "000"
         headers = headers_tmpfile.read
       ensure
@@ -297,7 +288,9 @@ module GitHub
       end
 
       begin
-        raise_error(output, errors, http_code, headers, scopes) if !http_code.start_with?("2") || !status.success?
+        if !http_code.start_with?("2") || !result.status.success?
+          raise_error(output, result.stderr, http_code, headers, scopes)
+        end
 
         return if http_code == "204" # No Content
 
@@ -336,9 +329,7 @@ module GitHub
       result = open_rest("#{API_URL}/graphql", scopes:, data:, request_method: "POST")
 
       if raise_errors
-        if result["errors"].present?
-          raise Error, result["errors"].map { |e| "#{e["type"]}: #{e["message"]}" }.join("\n")
-        end
+        raise Error, result["errors"].map { |e| e["message"] }.join("\n") if result["errors"].present?
 
         result["data"]
       else

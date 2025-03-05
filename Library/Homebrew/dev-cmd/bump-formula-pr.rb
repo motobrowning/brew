@@ -109,18 +109,19 @@ module Homebrew
 
         odie "This formula is disabled!" if formula.disabled?
         odie "This formula is deprecated and does not build!" if formula.deprecation_reason == :does_not_build
-        odie "This formula is not in a tap!" if formula.tap.blank?
-        odie "This formula's tap is not a Git repository!" unless formula.tap.git?
+        tap = formula.tap
+        odie "This formula is not in a tap!" if tap.blank?
+        odie "This formula's tap is not a Git repository!" unless tap.git?
 
-        odie <<~EOS unless formula.tap.allow_bump?(formula.name)
+        odie <<~EOS unless tap.allow_bump?(formula.name)
           Whoops, the #{formula.name} formula has its version update
           pull requests automatically opened by BrewTestBot every ~3 hours!
           We'd still love your contributions, though, so try another one
           that's not in the autobump list:
-            #{Formatter.url("#{formula.tap.remote}/blob/master/.github/autobump.txt")}
+            #{Formatter.url("#{tap.remote}/blob/master/.github/autobump.txt")}
         EOS
 
-        odie "You have too many PRs open: close or merge some first!" if GitHub.too_many_open_prs?(formula.tap)
+        odie "You have too many PRs open: close or merge some first!" if GitHub.too_many_open_prs?(tap)
 
         formula_spec = formula.stable
         odie "#{formula}: no stable specification found!" if formula_spec.blank?
@@ -129,9 +130,9 @@ module Homebrew
         # spamming during normal output.
         Homebrew.install_bundler_gems!(groups: ["audit", "style"]) unless args.no_audit?
 
-        tap_remote_repo = formula.tap.remote_repository
+        tap_remote_repo = T.must(tap.remote_repository)
         remote = "origin"
-        remote_branch = formula.tap.git_repository.origin_branch_name
+        remote_branch = tap.git_repository.origin_branch_name
         previous_branch = "-"
 
         check_pull_requests(formula, tap_remote_repo, state: "open")
@@ -148,7 +149,7 @@ module Homebrew
         new_mirrors ||= args.mirror
         if new_url.present? && (new_mirror = determine_mirror(new_url))
           new_mirrors ||= [new_mirror]
-          check_for_mirrors(formula, old_mirrors, new_mirrors)
+          check_for_mirrors(formula.name, old_mirrors, new_mirrors)
         end
 
         old_hash = formula_spec.checksum&.hexdigest
@@ -333,7 +334,7 @@ module Homebrew
         alias_rename = alias_update_pair(formula, new_formula_version)
         if alias_rename.present?
           ohai "Renaming alias #{alias_rename.first} to #{alias_rename.last}"
-          alias_rename.map! { |a| formula.tap.alias_dir/a }
+          alias_rename.map! { |a| tap.alias_dir/a }
         end
 
         unless args.dry_run?
@@ -345,12 +346,17 @@ module Homebrew
                                                             install_dependencies:     args.install_dependencies?,
                                                             silent:                   args.quiet?,
                                                             ignore_non_pypi_packages: true
+
+          update_matching_version_resources! formula,
+                                             version: new_formula_version.to_s
         end
 
         run_audit(formula, alias_rename, old_contents)
 
         pr_message = "Created with `brew bump-formula-pr`."
-        if resources_checked.nil? && formula.resources.any? { |resource| !resource.name.start_with?("homebrew-") }
+        if resources_checked.nil? && formula.resources.any? do |resource|
+          resource.livecheck.formula != :parent && !resource.name.start_with?("homebrew-")
+        end
           pr_message += <<~EOS
 
 
@@ -389,7 +395,7 @@ module Homebrew
           branch_name:      "bump-#{formula.name}-#{new_formula_version}",
           commit_message:   "#{formula.name} #{new_formula_version}",
           previous_branch:,
-          tap:              formula.tap,
+          tap:              tap,
           tap_remote_repo:,
           pr_message:,
         }
@@ -440,17 +446,83 @@ module Homebrew
       end
 
       sig {
-        params(formula: Formula, new_version: T.nilable(String), url: String,
+        params(formula_or_resource: T.any(Formula, Resource), new_version: T.nilable(String), url: String,
                specs: String).returns(T::Array[T.untyped])
       }
-      def fetch_resource_and_forced_version(formula, new_version, url, **specs)
+      def fetch_resource_and_forced_version(formula_or_resource, new_version, url, **specs)
         resource = Resource.new
         resource.url(url, **specs)
-        resource.owner = Resource.new(formula.name)
+        resource.owner = if formula_or_resource.is_a?(Formula)
+          Resource.new(formula_or_resource.name)
+        else
+          Resource.new(formula_or_resource.owner.name)
+        end
         forced_version = new_version && new_version != resource.version.to_s
         resource.version(new_version) if forced_version
         odie "Couldn't identify version, specify it using `--version=`." if resource.version.blank?
         [resource.fetch, forced_version]
+      end
+
+      sig {
+        params(
+          formula: Formula,
+          version: String,
+        ).void
+      }
+      def update_matching_version_resources!(formula, version:)
+        formula.resources.select { |r| r.livecheck.formula == :parent }.each do |resource|
+          new_url = update_url(resource.url, resource.version.to_s, version)
+
+          if new_url == resource.url
+            opoo <<~EOS
+              You need to bump resource "#{resource.name}" manually since the new URL
+              and old URL are both:
+                #{new_url}
+            EOS
+            next
+          end
+
+          new_mirrors = resource.mirrors.map do |mirror|
+            update_url(mirror, resource.version.to_s, version)
+          end
+          resource_path, forced_version = fetch_resource_and_forced_version(resource, version, new_url)
+          Utils::Tar.validate_file(resource_path)
+          new_hash = resource_path.sha256
+
+          inreplace_regex = /
+            [ ]+resource\ "#{resource.name}"\ do\s+
+              url\ .*\s+
+              (mirror\ .*\s+)*
+              sha256\ .*\s+
+              (version\ .*\s+)?
+              (\#.*\s+)*
+              livecheck\ do\s+
+                formula\ :parent\s+
+              end\s+
+              ((\#.*\s+)*
+              patch\ (.*\ )?do\s+
+                url\ .*\s+
+                sha256\ .*\s+
+              end\s+)*
+            end\s
+          /x
+
+          leading_spaces = T.must(formula.path.read.match(/^([ ]+)resource "#{resource.name}"/)).captures.first
+          new_resource_block = <<~EOS
+            #{leading_spaces}resource "#{resource.name}" do
+            #{leading_spaces}  url "#{new_url}"#{new_mirrors.map { |m| "\n#{leading_spaces}  mirror \"#{m}\"" }.join}
+            #{leading_spaces}  sha256 "#{new_hash}"
+            #{forced_version ? "#{leading_spaces}  version \"#{version}\"\n" : ""}
+            #{leading_spaces}  livecheck do
+            #{leading_spaces}    formula :parent
+            #{leading_spaces}  end
+            #{leading_spaces}end
+          EOS
+
+          Utils::Inreplace.inreplace formula.path do |s|
+            s.sub! inreplace_regex, new_resource_block
+          end
+        end
       end
 
       sig { params(formula: Formula, contents: T.nilable(String)).returns(Version) }

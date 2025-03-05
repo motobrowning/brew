@@ -29,7 +29,6 @@ require "utils/fork"
 # Installer for a formula.
 class FormulaInstaller
   include FormulaCellarChecks
-  extend Attrable
 
   ETC_VAR_DIRS = T.let([HOMEBREW_PREFIX/"etc", HOMEBREW_PREFIX/"var"].freeze, T::Array[Pathname])
 
@@ -45,12 +44,6 @@ class FormulaInstaller
   sig { returns(T::Boolean) }
   attr_accessor :link_keg
 
-  attr_predicate :installed_as_dependency?, :installed_on_request?
-  attr_predicate :show_summary_heading?, :show_header?
-  attr_predicate :force_bottle?, :ignore_deps?, :only_deps?, :interactive?, :git?, :force?, :overwrite?, :keep_tmp?
-  attr_predicate :debug_symbols?
-  attr_predicate :verbose?, :debug?, :quiet?
-
   sig {
     params(
       formula:                    Formula,
@@ -60,6 +53,7 @@ class FormulaInstaller
       show_header:                T::Boolean,
       build_bottle:               T::Boolean,
       skip_post_install:          T::Boolean,
+      skip_link:                  T::Boolean,
       force_bottle:               T::Boolean,
       bottle_arch:                T.nilable(String),
       ignore_deps:                T::Boolean,
@@ -84,10 +78,11 @@ class FormulaInstaller
     formula,
     link_keg: false,
     installed_as_dependency: false,
-    installed_on_request: true,
+    installed_on_request: false,
     show_header: false,
     build_bottle: false,
     skip_post_install: false,
+    skip_link: false,
     force_bottle: false,
     bottle_arch: nil,
     ignore_deps: false,
@@ -120,6 +115,7 @@ class FormulaInstaller
     @build_from_source_formulae = build_from_source_formulae
     @build_bottle = build_bottle
     @skip_post_install = skip_post_install
+    @skip_link = skip_link
     @bottle_arch = bottle_arch
     @formula.force_bottle ||= force_bottle
     @force_bottle = T.let(@formula.force_bottle, T::Boolean)
@@ -144,6 +140,54 @@ class FormulaInstaller
     # Take the original formula instance, which might have been swapped from an API instance to a source instance
     @formula = T.let(T.must(previously_fetched_formula), Formula) if previously_fetched_formula
   end
+
+  sig { returns(T::Boolean) }
+  def debug? = @debug
+
+  sig { returns(T::Boolean) }
+  def debug_symbols? = @debug_symbols
+
+  sig { returns(T::Boolean) }
+  def force? = @force
+
+  sig { returns(T::Boolean) }
+  def force_bottle? = @force_bottle
+
+  sig { returns(T::Boolean) }
+  def git? = @git
+
+  sig { returns(T::Boolean) }
+  def ignore_deps? = @ignore_deps
+
+  sig { returns(T::Boolean) }
+  def installed_as_dependency? = @installed_as_dependency
+
+  sig { returns(T::Boolean) }
+  def installed_on_request? = @installed_on_request
+
+  sig { returns(T::Boolean) }
+  def interactive? = @interactive
+
+  sig { returns(T::Boolean) }
+  def keep_tmp? = @keep_tmp
+
+  sig { returns(T::Boolean) }
+  def only_deps? = @only_deps
+
+  sig { returns(T::Boolean) }
+  def overwrite? = @overwrite
+
+  sig { returns(T::Boolean) }
+  def quiet? = @quiet
+
+  sig { returns(T::Boolean) }
+  def show_header? = @show_header
+
+  sig { returns(T::Boolean) }
+  def show_summary_heading? = @show_summary_heading
+
+  sig { returns(T::Boolean) }
+  def verbose? = @verbose
 
   sig { returns(T::Set[Formula]) }
   def self.attempted
@@ -193,6 +237,11 @@ class FormulaInstaller
   sig { returns(T::Boolean) }
   def skip_post_install?
     @skip_post_install.present?
+  end
+
+  sig { returns(T::Boolean) }
+  def skip_link?
+    @skip_link.present?
   end
 
   sig { params(output_warning: T::Boolean).returns(T::Boolean) }
@@ -254,8 +303,12 @@ class FormulaInstaller
       when :deprecated
         opoo message
       when :disabled
-        GitHub::Actions.puts_annotation_if_env_set(:error, message)
-        raise CannotInstallFormulaError, message
+        if force?
+          opoo message
+        else
+          GitHub::Actions.puts_annotation_if_env_set(:error, message)
+          raise CannotInstallFormulaError, message
+        end
       end
     end
 
@@ -436,7 +489,8 @@ class FormulaInstaller
 
     # Warn if a more recent version of this formula is available in the tap.
     begin
-      if formula.pkg_version < (v = Formulary.factory(formula.full_name, force_bottle: force_bottle?).pkg_version)
+      if !quiet? &&
+         formula.pkg_version < (v = Formulary.factory(formula.full_name, force_bottle: force_bottle?).pkg_version)
         opoo "#{formula.full_name} #{v} is available and more recent than version #{formula.pkg_version}."
       end
     rescue FormulaUnavailableError
@@ -480,8 +534,8 @@ on_request: installed_on_request?, options:)
     if pour_bottle?
       begin
         pour
+      # Catch any other types of exceptions as they leave us with nothing installed.
       rescue Exception # rubocop:disable Lint/RescueException
-        # any exceptions must leave us with nothing installed
         ignore_interrupts do
           begin
             FileUtils.rm_r(formula.prefix) if formula.prefix.directory?
@@ -796,12 +850,15 @@ on_request: installed_on_request?, options:)
     options |= inherited_options
     options &= df.options
 
+    installed_on_request = df.any_version_installed? && tab.present? && tab.installed_on_request
+    installed_on_request ||= false
+
     fi = FormulaInstaller.new(
       df,
       options:,
       link_keg:                   keg_had_linked_keg && keg_was_linked,
       installed_as_dependency:    true,
-      installed_on_request:       df.any_version_installed? && tab.present? && tab.installed_on_request,
+      installed_on_request:,
       force_bottle:               false,
       include_test_formulae:      @include_test_formulae,
       build_from_source_formulae: @build_from_source_formulae,
@@ -815,6 +872,7 @@ on_request: installed_on_request?, options:)
     oh1 "Installing #{formula.full_name} dependency: #{Formatter.identifier(dep.name)}"
     fi.install
     fi.finish
+  # Handle all possible exceptions installing deps.
   rescue Exception => e # rubocop:disable Lint/RescueException
     ignore_interrupts do
       tmp_keg.rename(installed_keg.to_path) if tmp_keg && !installed_keg.directory?
@@ -836,6 +894,7 @@ on_request: installed_on_request?, options:)
     audit_installed if Homebrew::EnvConfig.developer?
 
     return if !installed_on_request? || installed_as_dependency?
+    return if quiet?
 
     caveats = Caveats.new(formula)
 
@@ -853,7 +912,15 @@ on_request: installed_on_request?, options:)
     ohai "Finishing up" if verbose?
 
     keg = Keg.new(formula.prefix)
-    link(keg)
+    if skip_link?
+      unless quiet?
+        ohai "Skipping 'link' on request"
+        puts "You can run it manually using:"
+        puts "  brew link #{formula.full_name}"
+      end
+    else
+      link(keg)
+    end
 
     install_service
 
@@ -862,13 +929,15 @@ on_request: installed_on_request?, options:)
     Homebrew::Install.global_post_install
 
     if build_bottle? || skip_post_install?
-      if build_bottle?
-        ohai "Not running 'post_install' as we're building a bottle"
-      elsif skip_post_install?
-        ohai "Skipping 'post_install' on request"
+      unless quiet?
+        if build_bottle?
+          ohai "Not running 'post_install' as we're building a bottle"
+        elsif skip_post_install?
+          ohai "Skipping 'post_install' on request"
+        end
+        puts "You can run it manually using:"
+        puts "  brew postinstall #{formula.full_name}"
       end
-      puts "You can run it manually using:"
-      puts "  brew postinstall #{formula.full_name}"
     else
       formula.install_etc_var
       post_install if formula.post_install_defined?
@@ -1012,6 +1081,7 @@ on_request: installed_on_request?, options:)
     formula.update_head_version
 
     raise "Empty installation" if !formula.prefix.directory? || Keg.new(formula.prefix).empty_installation?
+  # Handle all possible exceptions when building.
   rescue Exception => e # rubocop:disable Lint/RescueException
     if e.is_a? BuildError
       e.formula = formula
@@ -1089,6 +1159,7 @@ on_request: installed_on_request?, options:)
       puts "You can try again using:"
       puts "  brew link #{formula.name}"
       @show_summary_heading = true
+    # Handle all other possible exceptions when linking.
     rescue Exception => e # rubocop:disable Lint/RescueException
       ofail "An unexpected error occurred during the `brew link` step"
       puts "The formula built, but is not symlinked into #{HOMEBREW_PREFIX}"
@@ -1141,6 +1212,7 @@ on_request: installed_on_request?, options:)
     launchd_service_path.chmod 0644
     log = formula.var/"log"
     log.mkpath if service.include? log.to_s
+  # Handle all possible exceptions when installing service files.
   rescue Exception => e # rubocop:disable Lint/RescueException
     puts e
     ofail "Failed to install service files"
@@ -1152,6 +1224,7 @@ on_request: installed_on_request?, options:)
   sig { params(keg: Keg).void }
   def fix_dynamic_linkage(keg)
     keg.fix_dynamic_linkage
+  # Rescue all possible exceptions when fixing linkage.
   rescue Exception => e # rubocop:disable Lint/RescueException
     ofail "Failed to fix install linkage"
     puts "The formula built, but you may encounter issues using it or linking other"
@@ -1167,6 +1240,7 @@ on_request: installed_on_request?, options:)
   def clean
     ohai "Cleaning" if verbose?
     Cleaner.new(formula).clean
+  # Handle all possible exceptions when cleaning does not complete.
   rescue Exception => e # rubocop:disable Lint/RescueException
     opoo "The cleaning step did not complete successfully"
     puts "Still, the installation was successful, so we will link it into your prefix."
@@ -1194,7 +1268,7 @@ on_request: installed_on_request?, options:)
     return keg_formula_path if formula.loaded_from_api?
     return keg_formula_path if formula.local_bottle_path.present?
 
-    tap_formula_path = formula.specified_path
+    tap_formula_path = T.must(formula.specified_path)
     return keg_formula_path unless tap_formula_path.exist?
 
     begin
@@ -1239,6 +1313,7 @@ on_request: installed_on_request?, options:)
         exec(*args)
       end
     end
+  # Handle all possible exceptions when postinstall does not complete.
   rescue Exception => e # rubocop:disable Lint/RescueException
     opoo "The post-install step did not complete successfully"
     puts "You can try again using:"
@@ -1304,6 +1379,7 @@ on_request: installed_on_request?, options:)
     fetch_dependencies
 
     return if only_deps?
+    return if formula.local_bottle_path.present?
 
     oh1 "Fetching #{Formatter.identifier(formula.full_name)}".strip
 
@@ -1317,6 +1393,7 @@ on_request: installed_on_request?, options:)
 
       formula.fetch_patches
       formula.resources.each(&:fetch)
+      downloadable_object = downloadable
 
       false
     end
@@ -1329,8 +1406,7 @@ on_request: installed_on_request?, options:)
     if check_attestation &&
        Homebrew::Attestation.enabled? &&
        formula.tap&.core_tap? &&
-       formula.name != "gh" &&
-       formula.local_bottle_path.blank?
+       formula.name != "gh"
       ohai "Verifying attestation for #{formula.name}"
       begin
         Homebrew::Attestation.check_core_attestation T.cast(downloadable_object, Bottle)
